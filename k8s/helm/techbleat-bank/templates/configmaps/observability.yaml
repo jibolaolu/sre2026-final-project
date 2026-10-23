@@ -80,7 +80,7 @@ data:
         url: http://jaeger:16686
         access: proxy
       {{- end }}
-      {{- if .Values.observability.loki.enabled }}
+      {{- if (.Values.observability.loki | default dict).enabled }}
       - name: Loki
         type: loki
         uid: loki

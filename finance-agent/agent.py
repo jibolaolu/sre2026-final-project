@@ -255,7 +255,7 @@ def run_agent(
     openai_key = os.getenv("OPENAI_API_KEY")
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
-    if not openai_key and not anthropic_key:
+    if client is None and not openai_key and not anthropic_key:
         raise ValueError(
             "No AI provider configured. "
             "Set OPENAI_API_KEY or ANTHROPIC_API_KEY in finance-agent/.env"

@@ -188,8 +188,12 @@ def get_toolkit(context: Dict[str, Any] | None = None) -> Tuple[Dict[str, Callab
 
     # ── tool 4: keyword search ────────────────────────────────────────────────
 
-    def search_transactions(keyword: str) -> Dict[str, Any]:
+    def search_transactions(keyword: str | None = None) -> Dict[str, Any]:
         """Search transactions whose reference contains keyword (case-insensitive)."""
+        _authorized_user(ctx)
+        if keyword is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail="keyword is required")
         keyword = keyword.strip()
         if not keyword:
             return {"currency": "GBP", "count": 0, "matches": []}
@@ -210,11 +214,15 @@ def get_toolkit(context: Dict[str, Any] | None = None) -> Tuple[Dict[str, Callab
 
     # ── tool 5: filter by transaction type ───────────────────────────────────
 
-    def get_transactions_by_type(transaction_type: str) -> Dict[str, Any]:
+    def get_transactions_by_type(transaction_type: str | None = None) -> Dict[str, Any]:
         """Return transactions of a specific type.
 
         Valid types: DEPOSIT, WITHDRAWAL, TRANSFER_IN, TRANSFER_OUT.
         """
+        _authorized_user(ctx)
+        if transaction_type is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail="transaction_type is required")
         tx_type = transaction_type.strip().upper()
         valid   = {"DEPOSIT", "WITHDRAWAL", "TRANSFER_IN", "TRANSFER_OUT"}
         if tx_type not in valid:
@@ -238,8 +246,12 @@ def get_toolkit(context: Dict[str, Any] | None = None) -> Tuple[Dict[str, Callab
 
     # ── tool 6: affordability check ───────────────────────────────────────────
 
-    def calculate_affordability(amount: float) -> Dict[str, Any]:
+    def calculate_affordability(amount: float | None = None) -> Dict[str, Any]:
         """Check whether the current balance covers a proposed spend amount."""
+        _authorized_user(ctx)
+        if amount is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail="amount is required")
         try:
             proposed = Decimal(str(amount))
             if proposed <= 0:

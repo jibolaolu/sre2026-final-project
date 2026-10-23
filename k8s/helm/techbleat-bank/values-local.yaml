@@ -5,8 +5,8 @@
 #     -f k8s/helm/techbleat-bank/values.yaml \
 #     -f k8s/helm/techbleat-bank/values-local.yaml \
 #     --set global.imageRegistry="YOURDOCKERHUBUSER/" \
-#     --set secrets.postgresPassword="bankingdev2026" \
-#     --set secrets.keycloakAdminPassword="admin" \
+#     --set secrets.postgresPassword="<your-postgres-password>" \
+#     --set secrets.keycloakAdminPassword="<your-keycloak-admin-password>" \
 #     --set secrets.keycloakAdminClientSecret="<generated-or-fixed-secret>"
 #
 # Hostnames — add to /etc/hosts (or C:\Windows\System32\drivers\etc\hosts):

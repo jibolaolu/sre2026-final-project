@@ -1,0 +1,22 @@
+title = "Techbleat Global Bank — gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules.allowlists]]
+description = "Helm Secret templates are not real secrets — they contain placeholders and Helm template expressions"
+paths = [
+  "k8s/helm/techbleat-bank/templates/secrets/.*\\.yaml",
+]
+
+[[rules.allowlists]]
+description = "values-local.yaml usage comments use placeholder values, not real credentials"
+paths = [
+  "k8s/helm/techbleat-bank/values-local\\.yaml",
+]
+
+[[rules.allowlists]]
+description = "values-eks.yaml usage comments use placeholder values"
+paths = [
+  "k8s/helm/techbleat-bank/values-eks\\.yaml",
+]

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from agent import run_agent, _item_to_dict
 from main import app
-from auth import fake_user, require_user
+from auth import fake_user, require_user, require_ai_agent_user
 
 
 class FakeClient:
@@ -112,6 +112,7 @@ class AgentTests(unittest.TestCase):
         web = TestClient(app)
         self.assertEqual(web.post("/chat", json={"message": "Balance?"}).status_code, 401)
         app.dependency_overrides[require_user] = lambda: fake_user("test-uid")
+        app.dependency_overrides[require_ai_agent_user] = lambda: fake_user("test-uid")
         try:
             self.assertEqual(web.get("/health").status_code, 200)
             self.assertEqual(web.post("/chat", json={"message": " "}).status_code, 422)
@@ -127,6 +128,7 @@ class AgentTests(unittest.TestCase):
     def test_session_management_endpoints(self):
         web = TestClient(app)
         app.dependency_overrides[require_user] = lambda: fake_user("test-uid")
+        app.dependency_overrides[require_ai_agent_user] = lambda: fake_user("test-uid")
         try:
             with patch("main.list_sessions", return_value=["s1", "s2"]):
                 resp = web.get("/sessions")
