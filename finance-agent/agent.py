@@ -65,7 +65,7 @@ def _run_openai_agent(
     sid = session_id or str(uuid.uuid4())
     tool_functions, tool_schemas = get_toolkit(tool_context)
 
-    history = load_history(user_id, sid)
+    history = list(load_history(user_id, sid))  # copy so we don't mutate the returned list
     history.append({"role": "user", "content": message})
     inputs: list = list(history)
 
