@@ -261,6 +261,16 @@ def run_agent(
             "Set OPENAI_API_KEY or ANTHROPIC_API_KEY in finance-agent/.env"
         )
 
+    # An explicit client (e.g. from tests) always uses the OpenAI-compatible path.
+    if client is not None:
+        return _run_openai_agent(
+            message,
+            user_id=user_id,
+            session_id=session_id,
+            tool_context=tool_context,
+            client=client,
+        )
+
     if openai_key:
         try:
             return _run_openai_agent(
