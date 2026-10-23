@@ -1,0 +1,118 @@
+# values-local.yaml — kind / Docker Desktop local overrides
+#
+# Usage:
+#   helm upgrade --install techbleat-bank ./k8s/helm/techbleat-bank \
+#     -f k8s/helm/techbleat-bank/values.yaml \
+#     -f k8s/helm/techbleat-bank/values-local.yaml \
+#     --set global.imageRegistry="YOURDOCKERHUBUSER/" \
+#     --set secrets.postgresPassword="bankingdev2026" \
+#     --set secrets.keycloakAdminPassword="admin" \
+#     --set secrets.keycloakAdminClientSecret="<generated-or-fixed-secret>"
+#
+# Hostnames — add to /etc/hosts (or C:\Windows\System32\drivers\etc\hosts):
+#   127.0.0.1 techbleat-bank.local keycloak.techbleat-bank.local
+#
+# On Windows with kind, use the kind node IP:
+#   kubectl get node -o wide   # find INTERNAL-IP
+#   <node-ip> techbleat-bank.local keycloak.techbleat-bank.local
+
+global:
+  imageRegistry: ""          # Set to "YOURDOCKERHUBUSER/" via --set
+  imagePullPolicy: IfNotPresent
+  storageClass: standard     # kind default storage class
+
+# ── Public URLs (used by Keycloak KC_HOSTNAME and frontend build args) ──────
+publicFrontendUrl: "http://techbleat-bank.local"
+publicKeycloakUrl: "http://keycloak.techbleat-bank.local"
+
+# ── Ingress ──────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+  tls: []    # No TLS for plain local; see tls.enabled=true for cert-manager
+  hosts:
+    - host: techbleat-bank.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+          port: 80
+    - host: keycloak.techbleat-bank.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: keycloak
+          port: 8080
+
+# ── TLS — cert-manager self-signed (optional for local HTTPS) ───────────────
+tls:
+  enabled: false          # set true to wire cert-manager ClusterIssuer
+  issuerName: selfsigned-issuer
+  issuerKind: ClusterIssuer
+
+# ── Scale down for local resource constraints ────────────────────────────────
+keycloak:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 300m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+userService:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+
+transactionService:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  env:
+    springDatasourceUrl: "jdbc:postgresql://postgres:5432/bankingdb"
+    keycloakJwkSetUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
+
+activityService:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+
+financeAgent:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  proxy:
+    # minikube Docker-driver on WSL2: pods cannot reach the internet directly.
+    # The proxy script (k8s/scripts/k8s-proxy.py) must be running on WSL2.
+    # 192.168.58.1 is the Docker bridge gateway — always reachable from pods.
+    httpsProxy: "http://192.168.58.1:3128"
+    noProxy: "keycloak,transaction-service,activity-service,user-service,redis,kafka,postgres,otel-collector,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.cluster.local,.svc"
+
+frontend:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+
+# ── Observability ─────────────────────────────────────────────────────────────
+observability:
+  # 4317 = gRPC (OTLP/gRPC), 4318 = HTTP/protobuf (OTLP/HTTP)
+  # The OTel Java agent uses OkHttp (HTTP/1.1) so it must target port 4318.
+  # Python services also default to OTLP/HTTP.
+  otelEndpoint: "http://otel-collector:4318"
+  loki:
+    enabled: true   # deploys loki-stack (Loki + Promtail) via deploy-local.sh
+
+# ── Keycloak client redirect URIs (local) ───────────────────────────────────
+keycloakClients:
+  frontendRedirectUris:
+    - "http://techbleat-bank.local/*"
+    - "http://localhost:3180/*"
+  frontendWebOrigins:
+    - "http://techbleat-bank.local"
+    - "http://localhost:3180"

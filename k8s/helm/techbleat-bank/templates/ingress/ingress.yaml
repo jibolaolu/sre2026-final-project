@@ -1,0 +1,85 @@
+# Local:  nginx ingress controller for kind
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
+# EKS: AWS Load Balancer Controller (set values-eks.yaml ingress.className: alb)
+#   https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html
+{{- if .Values.ingress.enabled }}
+---
+# Separate ingress for Keycloak — no rewrite-target so OIDC paths pass through intact.
+# Large proxy buffers prevent 502 errors from Keycloak's JWT response headers.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-keycloak
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+    {{- if and .Values.tls .Values.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.tls.issuerName | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if and .Values.tls .Values.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.publicKeycloakUrl | trimPrefix "https://" | trimPrefix "http://" | quote }}
+      secretName: {{ include "techbleat-bank.fullname" . }}-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak
+                port:
+                  number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if and .Values.tls .Values.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.tls.issuerName | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- else if and .Values.tls .Values.tls.enabled }}
+  tls:
+    - hosts:
+        {{- range .Values.ingress.hosts }}
+        - {{ .host | quote }}
+        {{- end }}
+      secretName: {{ include "techbleat-bank.fullname" . }}-tls
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ .service }}
+                port:
+                  number: {{ .port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

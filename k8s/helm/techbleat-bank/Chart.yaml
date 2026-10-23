@@ -1,0 +1,9 @@
+apiVersion: v2
+name: techbleat-bank
+description: Techbleat Global Bank — full stack Helm chart
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords: [banking, fintech, keycloak, fastapi, spring-boot]
+maintainers:
+  - name: Techbleat Engineering

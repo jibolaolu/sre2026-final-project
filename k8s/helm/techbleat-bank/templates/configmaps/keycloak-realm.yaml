@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-keycloak-realm
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+data:
+  banking-realm.json: |
+    {
+      "realm": "banking",
+      "enabled": true,
+      "displayName": "Techbleat Global Bank",
+      "ssoSessionMaxLifespan": 86400,
+      "ssoSessionIdleTimeout": 1800,
+      "accessTokenLifespan": 300,
+      "refreshTokenMaxReuse": 0,
+      "registrationAllowed": false,
+      "resetPasswordAllowed": true,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "bruteForceProtected": true,
+      "permanentLockout": false,
+      "maxFailureWaitSeconds": 900,
+      "waitIncrementSeconds": 60,
+      "quickLoginCheckMilliSeconds": 1000,
+      "minimumQuickLoginWaitSeconds": 60,
+      "maxDeltaTimeSeconds": 43200,
+      "failureFactor": 5,
+      "passwordPolicy": "length(8) and notUsername(undefined)",
+      "roles": {
+        "realm": [
+          {
+            "name": "banking-customer",
+            "description": "Standard banking customer with access to their own accounts"
+          },
+          {
+            "name": "banking-transact",
+            "description": "Permission to initiate banking transactions"
+          },
+          {
+            "name": "banking-ai-agent",
+            "description": "Access to the FinanceAgent AI banking assistant"
+          }
+        ]
+      },
+      "clients": [
+        {
+          "clientId": "banking-frontend",
+          "name": "Banking Frontend",
+          "description": "React SPA — public OIDC client with PKCE",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "redirectUris": {{ toJson (.Values.keycloakClients.frontendRedirectUris | default (list (printf "%s/*" (.Values.publicFrontendUrl | default "http://techbleat-bank.local")) "http://localhost:3180/*")) }},
+          "webOrigins": {{ toJson (.Values.keycloakClients.frontendWebOrigins | default (list (.Values.publicFrontendUrl | default "http://techbleat-bank.local") "http://localhost:3180")) }},
+          "attributes": {
+            "pkce.code.challenge.method": "S256",
+            "post.logout.redirect.uris": "+"
+          },
+          "defaultClientScopes": ["web-origins", "profile", "roles", "email"],
+          "optionalClientScopes": ["address", "phone", "offline_access"]
+        },
+        {
+          "clientId": "banking-provisioner",
+          "name": "Banking Provisioner",
+          "description": "Confidential service-account client used by user-service to provision Keycloak users",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "secret": {{ .Values.secrets.keycloakAdminClientSecret | quote }},
+          "attributes": {}
+        }
+      ],
+      "smtpServer": {
+        "host": "mailpit",
+        "port": "1025",
+        "from": "noreply@techbleat-bank.local",
+        "fromDisplayName": "Techbleat Global Bank",
+        "envelopeFrom": "",
+        "ssl": "false",
+        "starttls": "false",
+        "auth": "false"
+      }
+    }

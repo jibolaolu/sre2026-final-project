@@ -2,26 +2,43 @@ services:
   postgres:
     image: postgres:15
     container_name: banking-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: bankingdb
       POSTGRES_USER: bankuser
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in techbleat-global-bank-backend/.env}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db-init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bankuser -d bankingdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7
     container_name: banking-redis
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   kafka:
     image: confluentinc/cp-kafka:8.1.1
     hostname: kafka
     container_name: kafka
+    restart: unless-stopped
     ports:
       - "9092:9092"
       - "9101:9101"
@@ -44,43 +61,91 @@ services:
       # Replace CLUSTER_ID with a unique base64 UUID using "bin/kafka-storage.sh random-uuid"
       # See https://docs.confluent.io/kafka/operations-tools/kafka-tools.html#kafka-storage-sh
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 90s
 
   user-service:
     build: ./user-service
     container_name: user-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://bankuser:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in techbleat-global-bank-backend/.env}@postgres:5432/bankingdb
-      FRONTEND_ORIGIN: http://localhost:3000
-      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://host.docker.internal:8080}
+      FRONTEND_ORIGIN: http://localhost:3180
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-banking}
       KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-banking-provisioner}
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_SERVICE_NAME: user-service
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=local"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
-      - "8000:8000"
+      - "8180:8000"
 
   transaction-service:
     build: ./transaction-service
     container_name: transaction-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/bankingdb
       SPRING_DATASOURCE_USERNAME: bankuser
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in techbleat-global-bank-backend/.env}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       REDIS_HOST: redis
       REDIS_PORT: 6379
       SERVER_PORT: 8080
-      FRONTEND_ORIGIN: http://localhost:3000
+      FRONTEND_ORIGIN: http://localhost:3180
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--javaagent:/app/opentelemetry-javaagent.jar}
+      # Java OTel agent v2.x defaults to http/protobuf; force gRPC so it matches
+      # the collector's gRPC receiver on port 4317.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_SERVICE_NAME: transaction-service
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=local"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED: "true"
+      KEYCLOAK_JWK_SET_URI: ${KEYCLOAK_JWK_SET_URI:-http://keycloak:8080/realms/banking/protocol/openid-connect/certs}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
     ports:
       - "8090:8080"
 
   activity-service:
     build: ./activity-service
     container_name: activity-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://bankuser:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in techbleat-global-bank-backend/.env}@postgres:5432/bankingdb
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      FRONTEND_ORIGIN: http://localhost:3000
+      FRONTEND_ORIGIN: http://localhost:3180
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_SERVICE_NAME: activity-service
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=local"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8001:8001"
 
@@ -88,28 +153,155 @@ services:
     build:
       context: ../finance-agent
     container_name: finance-agent
+    restart: unless-stopped
     env_file:
       - path: ../finance-agent/.env
         required: false
     environment:
-      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://host.docker.internal:8080}
-      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/banking}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-https://techbleat-bank-keycloak.localtest.me/realms/banking}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-banking}
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-account}
+      KEYCLOAK_CLIENT_ID: finance-agent-client
       TRANSACTION_API_URL: http://transaction-service:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      REDIS_URL: redis://redis:6379
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-1800}
+      OTEL_SERVICE_NAME: finance-agent
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=local"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
-      - transaction-service
+      transaction-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
-      - "9001:9001"
+      - "9181:9001"
 
   frontend:
     build:
       context: ../techbleat-global-bank-frontend
       dockerfile: dockerfile
+      args:
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-https://techbleat-bank-keycloak.localtest.me}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-banking}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-banking-frontend}
     container_name: frontend
     image: frontend
+    restart: unless-stopped
     ports:
-      - "3000:80"
+      - "3180:80"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.113.0
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ../observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics export
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4319:4317"    # OTLP gRPC (different host port to avoid clash)
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ../observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ../observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "9093:9093"
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ../observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ../observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: https://techbleat-bank-grafana.localtest.me
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3300:3000"
+
+  mailpit:
+    image: axllent/mailpit:v1.21.5
+    container_name: mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"   # Web UI
+      - "1025:1025"   # SMTP
 
 volumes:
   postgres_data:
+  redis_data:
+  prometheus_data:
+  alertmanager_data:
+  loki_data:
+  grafana_data:
+
+networks:
+  default:
+    name: banking-net
+    external: true

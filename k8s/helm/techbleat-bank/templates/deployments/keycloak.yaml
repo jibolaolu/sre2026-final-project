@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-keycloak
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+spec:
+  replicas: {{ .Values.keycloak.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: keycloak
+  template:
+    metadata:
+      labels:
+        {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: keycloak
+    spec:
+      serviceAccountName: keycloak
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      volumes:
+        - name: realm-import
+          configMap:
+            name: {{ include "techbleat-bank.fullname" . }}-keycloak-realm
+      containers:
+        - name: keycloak
+          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args: ["start-dev", "--import-realm"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: KEYCLOAK_ADMIN
+              value: admin
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: keycloak-admin-password
+            # KC_HOSTNAME tells Keycloak its external URL for OIDC discovery URLs.
+            # Without this, discovery endpoints return the pod's internal hostname,
+            # which the browser cannot reach.
+            - name: KC_HOSTNAME
+              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HOSTNAME_STRICT_HTTPS
+              value: {{ if and .Values.tls .Values.tls.enabled }}"true"{{ else }}"false"{{ end }}
+            # KC_PROXY=edge: trust X-Forwarded-* headers from the ingress controller
+            - name: KC_PROXY
+              value: "edge"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: JAVA_OPTS_APPEND
+              value: "-Xmx512m -Xms256m"
+          volumeMounts:
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          resources:
+            {{- toYaml .Values.keycloak.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            initialDelaySeconds: {{ .Values.keycloak.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.keycloak.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.keycloak.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            initialDelaySeconds: {{ .Values.keycloak.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.keycloak.probes.readiness.periodSeconds }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: keycloak
+                topologyKey: kubernetes.io/hostname

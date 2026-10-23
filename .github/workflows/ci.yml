@@ -1,0 +1,217 @@
+name: CI — Test · Build · Scan · Push
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: docker.io
+  IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}
+
+jobs:
+  # ── Unit / integration tests ──────────────────────────────────────────────
+  test-python:
+    name: Python tests (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: user-service
+            path: techbleat-global-bank-backend/user-service
+          - service: activity-service
+            path: techbleat-global-bank-backend/activity-service
+          - service: finance-agent
+            path: finance-agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ matrix.path }}/requirements.txt
+      - name: Install dependencies
+        run: pip install -r ${{ matrix.path }}/requirements.txt pytest pytest-asyncio httpx
+      - name: Run tests
+        working-directory: ${{ matrix.path }}
+        env:
+          DATABASE_URL: "postgresql://test:test@localhost/test"
+          KEYCLOAK_URL: "http://localhost:8080"
+          KEYCLOAK_REALM: "banking"
+          KEYCLOAK_ISSUER: "http://localhost:8080/realms/banking"
+          KEYCLOAK_AUDIENCE: "account"
+        run: |
+          if [ -d tests ]; then
+            python -m pytest tests/ -v --tb=short
+          elif [ -d app/tests ]; then
+            python -m pytest app/tests/ -v --tb=short
+          else
+            echo "No tests directory found — skipping (add tests to enforce this step)"
+          fi
+
+  test-java:
+    name: Java tests (transaction-service)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+      - name: Run unit tests
+        working-directory: techbleat-global-bank-backend/transaction-service
+        run: mvn test -B --no-transfer-progress
+
+  # ── Build all service images ──────────────────────────────────────────────
+  build-and-push:
+    name: Build · Scan · Push (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    needs: [test-python, test-java]
+    permissions:
+      contents: read
+      packages: write
+      security-events: write   # needed for GitHub Security tab upload
+      id-token: write          # needed for cosign keyless signing
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: user-service
+            context: techbleat-global-bank-backend/user-service
+            dockerfile: techbleat-global-bank-backend/user-service/Dockerfile
+          - service: transaction-service
+            context: techbleat-global-bank-backend/transaction-service
+            dockerfile: techbleat-global-bank-backend/transaction-service/Dockerfile
+          - service: activity-service
+            context: techbleat-global-bank-backend/activity-service
+            dockerfile: techbleat-global-bank-backend/activity-service/Dockerfile
+          - service: finance-agent
+            context: finance-agent
+            dockerfile: finance-agent/Dockerfile
+          - service: frontend
+            context: techbleat-global-bank-frontend
+            dockerfile: techbleat-global-bank-frontend/dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=,suffix=,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build image (and push on non-PR)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            ${{ matrix.service == 'frontend' && format('VITE_KEYCLOAK_URL={0}', vars.VITE_KEYCLOAK_URL || 'http://keycloak.techbleat-bank.local') || '' }}
+            ${{ matrix.service == 'frontend' && 'VITE_KEYCLOAK_REALM=banking' || '' }}
+            ${{ matrix.service == 'frontend' && 'VITE_KEYCLOAK_CLIENT_ID=banking-frontend' || '' }}
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.meta.outputs.version || 'latest' }}
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+        # Failures now block the pipeline — CRITICAL/HIGH CVEs must be addressed before merging.
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+
+      - name: Generate SBOM (syft)
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.meta.outputs.version || 'latest' }}
+          artifact-name: sbom-${{ matrix.service }}.spdx.json
+          format: spdx-json
+
+      - name: Sign image with cosign (keyless via OIDC)
+        if: github.event_name != 'pull_request'
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
+
+  # ── Helm chart lint ───────────────────────────────────────────────────────
+  helm-lint:
+    name: Helm chart lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.16.0"
+      - name: Lint chart (local values)
+        run: |
+          helm lint k8s/helm/techbleat-bank \
+            -f k8s/helm/techbleat-bank/values.yaml \
+            -f k8s/helm/techbleat-bank/values-local.yaml \
+            --set secrets.postgresPassword=test \
+            --set secrets.keycloakAdminPassword=test \
+            --set secrets.keycloakAdminClientSecret=test \
+            --set global.imageRegistry="testregistry/"
+      - name: Lint chart (EKS values)
+        run: |
+          helm lint k8s/helm/techbleat-bank \
+            -f k8s/helm/techbleat-bank/values.yaml \
+            -f k8s/helm/techbleat-bank/values-eks.yaml \
+            --set secrets.postgresPassword=test \
+            --set secrets.keycloakAdminPassword=test \
+            --set secrets.keycloakAdminClientSecret=test \
+            --set global.imageRegistry="123456789012.dkr.ecr.us-east-1.amazonaws.com/"
+
+  # ── Secret scan: ensure no credentials were committed ─────────────────────
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

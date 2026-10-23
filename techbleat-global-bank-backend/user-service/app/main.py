@@ -1,11 +1,19 @@
 import os
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+from auth import UserContext, require_user
 from pydantic import BaseModel, EmailStr, Field, SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+from telemetry import configure_telemetry, get_logger
+
+_SERVICE_NAME = "user-service"
+configure_telemetry(_SERVICE_NAME)
+logger = get_logger(_SERVICE_NAME)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
@@ -29,6 +37,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Prometheus metrics endpoint ────────────────────────────────────────────────
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app)
+except ImportError:
+    pass
+
 
 class UserCreate(BaseModel):
     id: str = Field(min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9._-]+$")
@@ -44,6 +59,7 @@ def health():
 
 @app.post("/users")
 def create_user(user: UserCreate):
+    logger.info("Creating user", extra={"user_id": user.id})
     with engine.begin() as conn:
         existing = conn.execute(
             text("SELECT id FROM users WHERE id = :id OR email = :email"),
@@ -81,10 +97,12 @@ def create_user(user: UserCreate):
         raise HTTPException(status_code=409, detail="User ID or email already exists") from error
     except SQLAlchemyError as error:
         delete_keycloak_user(keycloak_user_id, access_token)
+        logger.error("Database error creating user", extra={"user_id": user.id, "error": str(error)})
         raise HTTPException(status_code=500, detail="Unable to create the bank profile") from error
 
+    logger.info("User created successfully", extra={"user_id": user.id})
     return {
-        "message": "User and bank account created. Banking access requires administrator role assignment.",
+        "message": "User and bank account created successfully.",
         "user_id": user.id,
     }
 
@@ -148,7 +166,7 @@ def create_keycloak_user(user: UserCreate) -> tuple[str, str]:
         password_response = httpx.put(
             f"{user_url}/{keycloak_user_id}/reset-password",
             headers=headers,
-            json={"type": "password", "value": user.password.get_secret_value(), "temporary": True},
+            json={"type": "password", "value": user.password.get_secret_value(), "temporary": False},
             timeout=10,
         )
     except httpx.RequestError as error:
@@ -158,6 +176,24 @@ def create_keycloak_user(user: UserCreate) -> tuple[str, str]:
     if password_response.status_code != 204:
         delete_keycloak_user(keycloak_user_id, access_token)
         raise HTTPException(status_code=400, detail="Password does not meet Keycloak policy requirements")
+
+    # Assign banking-customer realm role so the user can access banking APIs
+    try:
+        role_response = httpx.get(
+            f"{KEYCLOAK_URL}/admin/realms/{KEYCLOAK_REALM}/roles/banking-customer",
+            headers=headers,
+            timeout=10,
+        )
+        if role_response.status_code == 200:
+            role = role_response.json()
+            httpx.post(
+                f"{user_url}/{keycloak_user_id}/role-mappings/realm",
+                headers=headers,
+                json=[{"id": role["id"], "name": role["name"]}],
+                timeout=10,
+            )
+    except httpx.RequestError:
+        pass  # Role assignment failure is non-fatal; user can still log in
 
     return keycloak_user_id, access_token
 
@@ -174,7 +210,8 @@ def delete_keycloak_user(keycloak_user_id: str, access_token: str) -> None:
 
 
 @app.get("/users")
-def list_users():
+def list_users(user: UserContext = Depends(require_user)):
+    logger.info("Listing users")
     with engine.begin() as conn:
         rows = conn.execute(
             text(

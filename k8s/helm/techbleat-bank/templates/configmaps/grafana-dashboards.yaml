@@ -1,0 +1,385 @@
+{{- if .Values.observability.grafana.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-grafana-dashboard-provider
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: banking
+        orgId: 1
+        folder: Banking
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-grafana-dashboard-json
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+data:
+  banking-overview.json: |
+    {
+      "title": "Techbleat Global Bank — Overview",
+      "uid": "banking-overview",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "timezone": "browser",
+      "tags": ["banking", "slo", "sre"],
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "Service Health",
+          "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+          "collapsed": false
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "user-service",
+          "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+              ],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+            }
+          },
+          "targets": [{ "expr": "up{job=\"user-service\"}", "legendFormat": "status", "refId": "A" }]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "activity-service",
+          "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+              ],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+            }
+          },
+          "targets": [{ "expr": "up{job=\"activity-service\"}", "legendFormat": "status", "refId": "A" }]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "transaction-service",
+          "gridPos": { "x": 8, "y": 1, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+              ],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+            }
+          },
+          "targets": [{ "expr": "up{job=\"transaction-service\"}", "legendFormat": "status", "refId": "A" }]
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "finance-agent",
+          "gridPos": { "x": 12, "y": 1, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+              ],
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+            }
+          },
+          "targets": [{ "expr": "up{job=\"finance-agent\"}", "legendFormat": "status", "refId": "A" }]
+        },
+        {
+          "id": 6,
+          "type": "gauge",
+          "title": "SLO Availability (5m)",
+          "gridPos": { "x": 16, "y": 1, "w": 8, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0.99,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.999 }, { "color": "green", "value": 0.9999 }]
+              }
+            }
+          },
+          "targets": [{ "expr": "min(job:slo_availability:ratio_rate5m)", "legendFormat": "Availability", "refId": "A" }]
+        },
+        {
+          "id": 10,
+          "type": "row",
+          "title": "Request Rate",
+          "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 },
+          "collapsed": false
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Requests/sec — FastAPI services",
+          "gridPos": { "x": 0, "y": 6, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } } },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(http_requests_total{job=~\"user-service|activity-service|finance-agent\"}[5m]))",
+              "legendFormat": "{{ "{{" }}job{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Requests/sec — transaction-service",
+          "gridPos": { "x": 12, "y": 6, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } } },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum by (uri) (rate(http_server_requests_seconds_count{job=\"transaction-service\"}[5m]))",
+              "legendFormat": "{{ "{{" }}uri{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 20,
+          "type": "row",
+          "title": "Error Rate",
+          "gridPos": { "x": 0, "y": 13, "w": 24, "h": 1 },
+          "collapsed": false
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "5xx Error Rate — FastAPI services",
+          "gridPos": { "x": 0, "y": 14, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": { "lineWidth": 2 },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.05 }] }
+            }
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(http_requests_total{status_code=~\"5..\",job=~\"user-service|activity-service|finance-agent\"}[5m])) / clamp_min(sum by (job) (rate(http_requests_total{job=~\"user-service|activity-service|finance-agent\"}[5m])), 0.001)",
+              "legendFormat": "{{ "{{" }}job{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "5xx Error Rate — transaction-service",
+          "gridPos": { "x": 12, "y": 14, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": { "lineWidth": 2 },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.05 }] }
+            }
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(http_server_requests_seconds_count{job=\"transaction-service\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{job=\"transaction-service\"}[5m])), 0.001)",
+              "legendFormat": "transaction-service",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 30,
+          "type": "row",
+          "title": "Latency (p95)",
+          "gridPos": { "x": 0, "y": 21, "w": 24, "h": 1 },
+          "collapsed": false
+        },
+        {
+          "id": 31,
+          "type": "timeseries",
+          "title": "p95 Latency — FastAPI services",
+          "gridPos": { "x": 0, "y": 22, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": { "lineWidth": 2 },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.3 }, { "color": "red", "value": 0.5 }] }
+            }
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~\"user-service|activity-service|finance-agent\"}[5m])))",
+              "legendFormat": "{{ "{{" }}job{{ "}}" }} p95",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "p95 Latency — transaction-service",
+          "gridPos": { "x": 12, "y": 22, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": { "lineWidth": 2 },
+              "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.3 }, { "color": "red", "value": 0.5 }] }
+            }
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"transaction-service\"}[5m])))",
+              "legendFormat": "transaction-service p95",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 40,
+          "type": "row",
+          "title": "SLO Error Budget",
+          "gridPos": { "x": 0, "y": 29, "w": 24, "h": 1 },
+          "collapsed": false
+        },
+        {
+          "id": 41,
+          "type": "timeseries",
+          "title": "Availability (1h window)",
+          "gridPos": { "x": 0, "y": 30, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0.99,
+              "max": 1,
+              "custom": { "lineWidth": 2 },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.999 }, { "color": "green", "value": 0.9999 }]
+              }
+            }
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            { "expr": "job:slo_availability:ratio_rate1h", "legendFormat": "{{ "{{" }}job{{ "}}" }}", "refId": "A" }
+          ]
+        },
+        {
+          "id": 42,
+          "type": "timeseries",
+          "title": "Error Budget Burn Rate (6h window)",
+          "gridPos": { "x": 12, "y": 30, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "lineWidth": 2 },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 6 }, { "color": "red", "value": 14.4 }]
+              }
+            }
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "(1 - job:slo_availability:ratio_rate6h) / 0.001",
+              "legendFormat": "{{ "{{" }}job{{ "}}" }} burn",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 50,
+          "type": "row",
+          "title": "JVM and Database (transaction-service)",
+          "gridPos": { "x": 0, "y": 37, "w": 24, "h": 1 },
+          "collapsed": false
+        },
+        {
+          "id": 51,
+          "type": "timeseries",
+          "title": "JVM Heap Usage",
+          "gridPos": { "x": 0, "y": 38, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            { "expr": "sum(jvm_memory_used_bytes{job=\"transaction-service\",area=\"heap\"})", "legendFormat": "Used", "refId": "A" },
+            { "expr": "sum(jvm_memory_max_bytes{job=\"transaction-service\",area=\"heap\"})", "legendFormat": "Max", "refId": "B" }
+          ]
+        },
+        {
+          "id": 52,
+          "type": "timeseries",
+          "title": "HikariCP Connection Pool",
+          "gridPos": { "x": 8, "y": 38, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            { "expr": "hikaricp_connections_active{job=\"transaction-service\"}", "legendFormat": "Active", "refId": "A" },
+            { "expr": "hikaricp_connections_idle{job=\"transaction-service\"}", "legendFormat": "Idle", "refId": "B" },
+            { "expr": "hikaricp_connections_pending{job=\"transaction-service\"}", "legendFormat": "Pending", "refId": "C" }
+          ]
+        },
+        {
+          "id": 53,
+          "type": "timeseries",
+          "title": "JVM GC Pause Time",
+          "gridPos": { "x": 16, "y": 38, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "rate(jvm_gc_pause_seconds_sum{job=\"transaction-service\"}[5m])",
+              "legendFormat": "{{ "{{" }}action{{ "}}" }} {{ "{{" }}cause{{ "}}" }}",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }
+{{- end }}

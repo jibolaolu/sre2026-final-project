@@ -51,3 +51,4 @@ replay_pid*
 **/~$*
 **/*_bk
 **/soem logs
+k8s/minikube-linux-amd64

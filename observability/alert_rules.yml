@@ -1,0 +1,167 @@
+groups:
+  - name: banking-slo
+    interval: 30s
+    rules:
+      # SLO recording rules — 99.9% availability, p95 < 500ms latency
+      - record: job:http_requests_total:rate5m
+        expr: sum by (job) (rate(http_requests_total[5m]))
+      - record: job:http_requests_error:rate5m
+        expr: sum by (job) (rate(http_requests_total{status_code=~"5.."}[5m]))
+      - record: job:slo_availability:ratio_rate5m
+        expr: |
+          1 - (
+            job:http_requests_error:rate5m
+            / clamp_min(job:http_requests_total:rate5m, 1)
+          )
+      - record: job:slo_availability:ratio_rate1h
+        expr: |
+          1 - (
+            sum by (job) (rate(http_requests_total{status_code=~"5.."}[1h]))
+            / clamp_min(sum by (job) (rate(http_requests_total[1h])), 1)
+          )
+      - record: job:slo_availability:ratio_rate6h
+        expr: |
+          1 - (
+            sum by (job) (rate(http_requests_total{status_code=~"5.."}[6h]))
+            / clamp_min(sum by (job) (rate(http_requests_total[6h])), 1)
+          )
+      # Fast burn: 14.4× error budget consumption (2% of monthly budget in 1h)
+      - alert: SLOErrorBudgetFastBurn
+        expr: |
+          (job:slo_availability:ratio_rate1h < (1 - 14.4 * 0.001))
+          and
+          (job:slo_availability:ratio_rate5m < (1 - 14.4 * 0.001))
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SLO fast burn on {{ $labels.job }}"
+          description: "{{ $labels.job }} burning error budget at 14×+. Availability: {{ $value | humanizePercentage }}"
+      # Slow burn: 6× error budget consumption over 6h (5% of monthly budget)
+      - alert: SLOErrorBudgetSlowBurn
+        expr: |
+          (job:slo_availability:ratio_rate6h < (1 - 6 * 0.001))
+          and
+          (job:slo_availability:ratio_rate1h < (1 - 6 * 0.001))
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SLO slow burn on {{ $labels.job }}"
+          description: "{{ $labels.job }} burning error budget at 6×+ over 6h. Availability: {{ $value | humanizePercentage }}"
+      # Latency SLO: p95 < 500ms
+      - alert: SLOLatencyBreach
+        expr: |
+          histogram_quantile(0.95,
+            sum by (job, le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latency SLO breach on {{ $labels.job }}"
+          description: "{{ $labels.job }} p95 latency {{ $value | humanizeDuration }} (SLO: 500ms)"
+
+  - name: banking-service-health
+    interval: 30s
+    rules:
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "{{ $labels.job }} ({{ $labels.instance }}) has been unreachable for more than 1 minute."
+
+      - alert: HighErrorRateFastAPI
+        expr: |
+          (
+            sum by (job) (rate(http_requests_total{status_code=~"5..",job=~"user-service|activity-service|finance-agent"}[5m]))
+            /
+            clamp_min(sum by (job) (rate(http_requests_total{job=~"user-service|activity-service|finance-agent"}[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx rate on {{ $labels.job }}"
+          description: "{{ $labels.job }} 5xx error rate is {{ $value | humanizePercentage }} (threshold 5%)."
+
+      - alert: HighErrorRateTransactionService
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{job="transaction-service",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count{job="transaction-service"}[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx rate on transaction-service"
+          description: "transaction-service 5xx error rate is {{ $value | humanizePercentage }} (threshold 5%)."
+
+      - alert: HighLatencyFastAPI
+        expr: |
+          histogram_quantile(0.95,
+            sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~"user-service|activity-service|finance-agent"}[5m]))
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on {{ $labels.job }}"
+          description: "{{ $labels.job }} p95 latency is {{ $value | humanizeDuration }} (threshold 2s)."
+
+      - alert: HighLatencyTransactionService
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{job="transaction-service"}[5m]))
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency on transaction-service"
+          description: "transaction-service p95 latency is {{ $value | humanizeDuration }} (threshold 2s)."
+
+  - name: banking-jvm
+    interval: 60s
+    rules:
+
+      - alert: JvmHeapHigh
+        expr: |
+          sum(jvm_memory_used_bytes{job="transaction-service",area="heap"})
+          /
+          sum(jvm_memory_max_bytes{job="transaction-service",area="heap"} > 0)
+          > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM heap usage > 85% on transaction-service"
+          description: "JVM heap is at {{ $value | humanizePercentage }}. GC pressure may be high."
+
+      - alert: HikariCpConnectionsExhausted
+        expr: hikaricp_connections_pending{job="transaction-service"} > 2
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HikariCP connection pool saturated on transaction-service"
+          description: "{{ $value }} threads waiting for a database connection."
+
+  - name: banking-otel
+    interval: 60s
+    rules:
+
+      - alert: OtelDroppedSpans
+        expr: rate(otelcol_receiver_refused_spans_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OTel collector is dropping spans"
+          description: "{{ $value | humanize }} spans/s being refused by the collector."

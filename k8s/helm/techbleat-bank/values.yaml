@@ -1,0 +1,317 @@
+global:
+  namespace: banking
+  imageRegistry: ""          # e.g. "yourdockerhubuser/" or "123456789012.dkr.ecr.us-east-1.amazonaws.com/"
+  imagePullPolicy: IfNotPresent
+  storageClass: standard
+
+# ── Public URLs ────────────────────────────────────────────────────────────────
+# These must match the Ingress hostnames. Keycloak's KC_HOSTNAME is derived from
+# publicKeycloakUrl. The frontend image is built with VITE_KEYCLOAK_URL at
+# deploy time (deploy-local.sh passes them as --build-arg).
+publicFrontendUrl: "http://techbleat-bank.local"
+publicKeycloakUrl: "http://keycloak.techbleat-bank.local"
+
+# ── Keycloak client configuration ─────────────────────────────────────────────
+# Redirect URIs and web origins for the banking-frontend OIDC client.
+# Must be limited to actual deployed URLs — no wildcards in production.
+keycloakClients:
+  frontendRedirectUris:
+    - "http://techbleat-bank.local/*"
+    - "http://localhost:3180/*"
+  frontendWebOrigins:
+    - "http://techbleat-bank.local"
+    - "http://localhost:3180"
+
+# ── TLS — cert-manager ────────────────────────────────────────────────────────
+tls:
+  enabled: false
+  issuerName: selfsigned-issuer
+  issuerKind: ClusterIssuer
+
+# ── Secrets (replace "changeme" with real values before deploying) ─────────────
+# For production, use External Secrets Operator with AWS Secrets Manager instead.
+# See k8s/helm/techbleat-bank/templates/secrets/app-secrets.yaml for details.
+secrets:
+  postgresPassword: "changeme"
+  keycloakAdminPassword: "changeme"
+  keycloakAdminClientSecret: "changeme"
+  transactionServiceKcSecret: "changeme"
+  activityServiceKcSecret: "changeme"
+  financeAgentKcSecret: "changeme"
+  openaiApiKey: "changeme"
+  anthropicApiKey: "changeme"
+
+# ── Observability ─────────────────────────────────────────────────────────────
+observability:
+  otelEndpoint: ""   # e.g. "http://otel-collector:4317" — empty = no-op
+  jaeger:
+    enabled: true
+    image: jaegertracing/all-in-one
+    tag: "1.61.0"
+  prometheus:
+    enabled: true
+    image: prom/prometheus
+    tag: "v2.55.0"
+  otelCollector:
+    enabled: true
+    image: otel/opentelemetry-collector-contrib
+    tag: "0.111.0"
+  grafana:
+    enabled: true
+    image: grafana/grafana
+    tag: "11.3.0"
+    adminPassword: "admin"
+
+# ── Istio ─────────────────────────────────────────────────────────────────────
+istio:
+  enabled: false
+  mtls: STRICT
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: techbleat-bank.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+          port: 80
+  tls: []
+
+# ── Keycloak ──────────────────────────────────────────────────────────────────
+keycloak:
+  replicaCount: 1
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: "24.0.5"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 768Mi
+    limits:
+      cpu: "1"
+      memory: 1536Mi
+  autoscaling:
+    enabled: false
+  probes:
+    liveness:
+      initialDelaySeconds: 120
+      periodSeconds: 20
+      failureThreshold: 5
+    readiness:
+      initialDelaySeconds: 60
+      periodSeconds: 10
+
+# ── user-service ─────────────────────────────────────────────────────────────
+userService:
+  replicaCount: 2
+  image:
+    repository: user-service
+    tag: ""    # set via --set userService.image.tag=<sha> at deploy time
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+  env:
+    frontendOrigin: "http://frontend"
+    keycloakRealm: banking
+    keycloakAdminClientId: banking-provisioner
+
+# ── transaction-service ───────────────────────────────────────────────────────
+transactionService:
+  replicaCount: 2
+  image:
+    repository: transaction-service
+    tag: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  probes:
+    liveness:
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+  env:
+    springDatasourceUrl: "jdbc:postgresql://postgres:5432/bankingdb"
+    springDatasourceUsername: bankuser
+
+    kafkaBootstrapServers: kafka:29092
+    redisHost: redis
+    redisPort: "6379"
+    serverPort: "8080"
+    frontendOrigin: "http://frontend"
+    keycloakJwkSetUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
+
+# ── activity-service ──────────────────────────────────────────────────────────
+activityService:
+  replicaCount: 2
+  image:
+    repository: activity-service
+    tag: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+  env:
+    kafkaBootstrapServers: kafka:29092
+    frontendOrigin: "http://frontend"
+    keycloakRealm: banking
+
+# ── finance-agent ─────────────────────────────────────────────────────────────
+financeAgent:
+  replicaCount: 1
+  image:
+    repository: finance-agent
+    tag: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+  env:
+    keycloakRealm: banking
+    keycloakAudience: account
+    transactionApiUrl: "http://transaction-service:8080"
+  proxy:
+    httpsProxy: ""   # e.g. "http://192.168.58.1:3128" for minikube-on-WSL2
+    noProxy: ""      # comma-separated list of in-cluster hostnames
+
+# ── frontend ──────────────────────────────────────────────────────────────────
+frontend:
+  replicaCount: 2
+  image:
+    repository: frontend
+    tag: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  probes:
+    liveness:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+  env:
+    viteKeycloakRealm: banking
+    viteKeycloakClientId: banking-frontend
+
+# ── PostgreSQL StatefulSet ─────────────────────────────────────────────────────
+postgres:
+  image:
+    repository: postgres
+    tag: "15"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  persistence:
+    size: 10Gi
+  env:
+    dbName: bankingdb
+    dbUser: bankuser
+
+# ── Redis ─────────────────────────────────────────────────────────────────────
+redis:
+  image:
+    repository: redis
+    tag: "7"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+
+# ── Kafka ─────────────────────────────────────────────────────────────────────
+kafka:
+  image:
+    repository: confluentinc/cp-kafka
+    tag: "8.1.1"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 768Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  persistence:
+    size: 10Gi
+  clusterId: "MkU3OEVBNTcwNTJENDM2Qk"

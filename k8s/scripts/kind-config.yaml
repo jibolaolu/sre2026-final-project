@@ -1,0 +1,24 @@
+# kind cluster configuration for Techbleat Global Bank
+# Exposes ports 80 and 443 on the host so NGINX ingress works without port-forward.
+#
+# Usage: kind create cluster --config k8s/scripts/kind-config.yaml --name techbleat-bank
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: techbleat-bank
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+  - role: worker
+  - role: worker

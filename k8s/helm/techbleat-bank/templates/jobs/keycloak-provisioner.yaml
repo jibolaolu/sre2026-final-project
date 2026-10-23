@@ -1,0 +1,188 @@
+# Helm post-install/post-upgrade hook that provisions the banking Keycloak realm.
+# Runs after the Helm release is installed/upgraded and waits for Keycloak to be ready.
+# Safe to re-run: all operations are idempotent (checks before creating).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-keycloak-provisioner
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak-provisioner
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: keycloak-provisioner
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: keycloak
+      containers:
+        - name: provisioner
+          image: curlimages/curl:8.10.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KC_URL
+              value: "http://keycloak:8080"
+            - name: KC_REALM
+              value: banking
+            - name: KC_ADMIN_USER
+              value: admin
+            - name: KC_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: keycloak-admin-password
+            - name: PROVISIONER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: keycloak-admin-client-secret
+            - name: DEMO_USER_PASSWORD
+              value: "Demo@2024"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              # ── Wait for Keycloak ──────────────────────────────────────────
+              echo "[provisioner] Waiting for Keycloak to be ready..."
+              until curl -sf "${KC_URL}/realms/master" -o /dev/null; do
+                echo "[provisioner] Keycloak not ready yet, retrying in 10s..."
+                sleep 10
+              done
+              echo "[provisioner] Keycloak is ready."
+
+              # ── Get admin token ────────────────────────────────────────────
+              TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+                -d "grant_type=password&client_id=admin-cli&username=${KC_ADMIN_USER}&password=${KC_ADMIN_PASSWORD}" \
+                | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+              if [ -z "$TOKEN" ]; then
+                echo "[provisioner] ERROR: Failed to get admin token"
+                exit 1
+              fi
+              echo "[provisioner] Got admin token."
+
+              KC_API="${KC_URL}/admin/realms"
+
+              # ── Verify banking realm was imported ──────────────────────────
+              REALM_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                "${KC_API}/${KC_REALM}" -H "Authorization: Bearer $TOKEN")
+              if [ "$REALM_STATUS" != "200" ]; then
+                echo "[provisioner] WARNING: banking realm not found (status $REALM_STATUS). Keycloak may still be importing."
+                sleep 15
+                TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+                  -d "grant_type=password&client_id=admin-cli&username=${KC_ADMIN_USER}&password=${KC_ADMIN_PASSWORD}" \
+                  | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+              fi
+
+              # ── Set banking-provisioner client secret ─────────────────────
+              PROVISIONER_ID=$(curl -s "${KC_API}/${KC_REALM}/clients?clientId=banking-provisioner" \
+                -H "Authorization: Bearer $TOKEN" \
+                | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+              if [ -n "$PROVISIONER_ID" ]; then
+                # Secret is managed via the realm ConfigMap (keycloak-realm.yaml uses
+                # .Values.secrets.keycloakAdminClientSecret). Calling POST /client-secret
+                # would regenerate a random value and break the match with the K8s secret.
+                echo "[provisioner] Skipping secret regeneration (managed via realm ConfigMap)."
+
+                # Grant realm-admin role to service account
+                SA_ID=$(curl -s "${KC_API}/${KC_REALM}/clients/${PROVISIONER_ID}/service-account-user" \
+                  -H "Authorization: Bearer $TOKEN" \
+                  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+                MANAGE_USERS_ROLE=$(curl -s "${KC_API}/${KC_REALM}/roles/manage-users-role" \
+                  -H "Authorization: Bearer $TOKEN" 2>/dev/null)
+
+                # Grant manage-users via realm-management client role
+                REALM_MGMT_ID=$(curl -s "${KC_API}/${KC_REALM}/clients?clientId=realm-management" \
+                  -H "Authorization: Bearer $TOKEN" \
+                  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+                if [ -n "$REALM_MGMT_ID" ] && [ -n "$SA_ID" ]; then
+                  MANAGE_USERS=$(curl -s "${KC_API}/${KC_REALM}/clients/${REALM_MGMT_ID}/roles/manage-users" \
+                    -H "Authorization: Bearer $TOKEN")
+                  MANAGE_USERS_ID=$(echo "$MANAGE_USERS" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                  VIEW_USERS_ID=$(curl -s "${KC_API}/${KC_REALM}/clients/${REALM_MGMT_ID}/roles/view-users" \
+                    -H "Authorization: Bearer $TOKEN" \
+                    | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                  if [ -n "$MANAGE_USERS_ID" ]; then
+                    curl -s -X POST "${KC_API}/${KC_REALM}/users/${SA_ID}/role-mappings/clients/${REALM_MGMT_ID}" \
+                      -H "Authorization: Bearer $TOKEN" \
+                      -H "Content-Type: application/json" \
+                      -d "[{\"id\":\"${MANAGE_USERS_ID}\",\"name\":\"manage-users\"},{\"id\":\"${VIEW_USERS_ID}\",\"name\":\"view-users\"}]" \
+                      -o /dev/null
+                    echo "[provisioner] Granted manage-users to banking-provisioner service account."
+                  fi
+                fi
+              else
+                echo "[provisioner] WARNING: banking-provisioner client not found; realm import may not have completed."
+              fi
+
+              # ── Ensure realm roles exist ──────────────────────────────────
+              for ROLE_DEF in \
+                'banking-customer|Standard banking customer' \
+                'banking-transact|Permission to initiate banking transactions' \
+                'banking-ai-agent|Access to the FinanceAgent AI banking assistant'; do
+                ROLE_NAME=$(echo "$ROLE_DEF" | cut -d'|' -f1)
+                ROLE_DESC=$(echo "$ROLE_DEF" | cut -d'|' -f2)
+                ROLE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                  "${KC_API}/${KC_REALM}/roles/${ROLE_NAME}" -H "Authorization: Bearer $TOKEN")
+                if [ "$ROLE_STATUS" = "404" ]; then
+                  curl -s -X POST "${KC_API}/${KC_REALM}/roles" \
+                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                    -d "{\"name\":\"${ROLE_NAME}\",\"description\":\"${ROLE_DESC}\"}" -o /dev/null
+                  echo "[provisioner] Created role: ${ROLE_NAME}."
+                fi
+              done
+
+              # ── Create demo user ──────────────────────────────────────────
+              DEMO_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
+                "${KC_API}/${KC_REALM}/users?username=bankingdemo" -H "Authorization: Bearer $TOKEN")
+
+              DEMO_ID=$(curl -s "${KC_API}/${KC_REALM}/users?username=bankingdemo" \
+                -H "Authorization: Bearer $TOKEN" \
+                | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+              if [ -z "$DEMO_ID" ]; then
+                curl -s -X POST "${KC_API}/${KC_REALM}/users" \
+                  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                  -d '{"username":"bankingdemo","email":"demo@techbleat-bank.local","firstName":"Banking","lastName":"Demo","enabled":true,"emailVerified":true}' \
+                  -o /dev/null
+                DEMO_ID=$(curl -s "${KC_API}/${KC_REALM}/users?username=bankingdemo" \
+                  -H "Authorization: Bearer $TOKEN" \
+                  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                echo "[provisioner] Created demo user (ID: $DEMO_ID)."
+              else
+                echo "[provisioner] Demo user already exists."
+              fi
+
+              if [ -n "$DEMO_ID" ]; then
+                # Set permanent password
+                curl -s -X PUT "${KC_API}/${KC_REALM}/users/${DEMO_ID}/reset-password" \
+                  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                  -d "{\"type\":\"password\",\"value\":\"${DEMO_USER_PASSWORD}\",\"temporary\":false}" -o /dev/null
+
+                # Assign banking-customer role
+                ROLE_BODY=$(curl -s "${KC_API}/${KC_REALM}/roles/banking-customer" \
+                  -H "Authorization: Bearer $TOKEN")
+                ROLE_ID=$(echo "$ROLE_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                if [ -n "$ROLE_ID" ]; then
+                  curl -s -X POST "${KC_API}/${KC_REALM}/users/${DEMO_ID}/role-mappings/realm" \
+                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                    -d "[{\"id\":\"${ROLE_ID}\",\"name\":\"banking-customer\"}]" -o /dev/null
+                  echo "[provisioner] Assigned banking-customer to demo user."
+                fi
+              fi
+
+              echo "[provisioner] Provisioning complete."

@@ -60,16 +60,26 @@ export default function TechbleatGlobalBankCustomerApp() {
   const canUseAssistant = canViewBanking && hasRole(import.meta.env.VITE_BANKING_AI_AGENT_ROLE || "banking-ai-agent");
 
   const spendingThisMonth = useMemo(() => {
+    const now = new Date();
     return transactions
-      .filter((tx) => Number(tx.amount) < 0 || String(tx.transactionType || "").includes("WITHDRAW") || String(tx.transactionType || "").includes("OUT"))
+      .filter((tx) => {
+        const d = new Date(tx.createdAt);
+        return d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && (String(tx.transactionType || "").includes("WITHDRAW") || String(tx.transactionType || "").includes("OUT"));
+      })
       .reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
   }, [transactions]);
 
   const moneyInThisMonth = useMemo(() => {
+    const now = new Date();
     return transactions
       .filter((tx) => {
+        const d = new Date(tx.createdAt);
         const type = String(tx.transactionType || "");
-        return type.includes("DEPOSIT") || type.includes("IN");
+        return d.getFullYear() === now.getFullYear()
+            && d.getMonth() === now.getMonth()
+            && (type.includes("DEPOSIT") || type.includes("IN"));
       })
       .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
   }, [transactions]);
@@ -257,6 +267,7 @@ export default function TechbleatGlobalBankCustomerApp() {
           body: JSON.stringify({
             toUserId: transferForm.toUserId.trim(),
             amount,
+            ...(transferForm.reference.trim() ? { reference: transferForm.reference.trim() } : {}),
           }),
         });
       }
@@ -1280,14 +1291,24 @@ function formatDate(value) {
 }
 
 function buildWeeklyBars(transactions) {
-  const source = transactions.slice(0, 7).reverse();
-  if (source.length === 0) {
-    return Array.from({ length: 7 }, (_, index) => ({ label: `W${index + 1}`, height: 20 + index * 8 }));
+  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const now = new Date();
+  // Build buckets for the last 7 calendar days (oldest first).
+  const buckets = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    buckets.push({ label: dayLabels[d.getDay()], key: d.toISOString().slice(0, 10), total: 0 });
   }
-
-  const maxAmount = Math.max(...source.map((tx) => Math.abs(Number(tx.amount || 0))), 1);
-  return source.map((tx, index) => ({
-    label: `W${index + 1}`,
-    height: Math.max((Math.abs(Number(tx.amount || 0)) / maxAmount) * 180, 20),
+  for (const tx of transactions) {
+    const key = new Date(tx.createdAt).toISOString().slice(0, 10);
+    const bucket = buckets.find((b) => b.key === key);
+    if (bucket) bucket.total += Math.abs(Number(tx.amount || 0));
+  }
+  const max = Math.max(...buckets.map((b) => b.total), 1);
+  const hasData = buckets.some((b) => b.total > 0);
+  return buckets.map((b, index) => ({
+    label: b.label,
+    height: hasData ? Math.max((b.total / max) * 180, 16) : 20 + index * 8,
   }));
 }

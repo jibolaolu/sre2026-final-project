@@ -1,0 +1,10 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: finance-agent
+  namespace: banking
+spec:
+  host: finance-agent
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

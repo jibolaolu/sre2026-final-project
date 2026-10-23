@@ -1,0 +1,33 @@
+{{- if .Values.tls.enabled }}
+---
+# Self-signed ClusterIssuer for local / kind / minikube.
+# For EKS, replace with an ACME issuer using Let's Encrypt or AWS ACM via
+# cert-manager's ACMEIssuer (set tls.issuerKind: ClusterIssuer with ACME config).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.tls.issuerName }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+# Certificate for the frontend and API ingress
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-tls
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "techbleat-bank.fullname" . }}-tls
+  issuerRef:
+    name: {{ .Values.tls.issuerName }}
+    kind: {{ .Values.tls.issuerKind }}
+  dnsNames:
+    {{- range .Values.ingress.hosts }}
+    - {{ .host | quote }}
+    {{- end }}
+    - {{ .Values.publicKeycloakUrl | trimPrefix "https://" | trimPrefix "http://" | quote }}
+{{- end }}

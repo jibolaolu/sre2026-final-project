@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-activity-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: activity-service
+spec:
+  replicas: {{ .Values.activityService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: activity-service
+  template:
+    metadata:
+      labels:
+        {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: activity-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: activity-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: activity-service
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.activityService.image.repository }}:{{ .Values.activityService.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: postgres-password
+            - name: DATABASE_URL
+              value: "postgresql://bankuser:$(POSTGRES_PASSWORD)@postgres:5432/bankingdb"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.activityService.env.kafkaBootstrapServers | quote }}
+            - name: KEYCLOAK_URL
+              value: "http://keycloak:8080"
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.activityService.env.keycloakRealm | quote }}
+            - name: KEYCLOAK_ISSUER
+              value: "{{ .Values.publicKeycloakUrl }}/realms/{{ .Values.activityService.env.keycloakRealm }}"
+            - name: KEYCLOAK_AUDIENCE
+              value: "account"
+            - name: FRONTEND_ORIGIN
+              value: {{ .Values.activityService.env.frontendOrigin | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.observability.otelEndpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: activity-service
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=production"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            {{- toYaml .Values.activityService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: {{ .Values.activityService.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.activityService.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.activityService.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: {{ .Values.activityService.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.activityService.probes.readiness.periodSeconds }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: activity-service
+                topologyKey: kubernetes.io/hostname

@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-finance-agent
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: finance-agent
+spec:
+  replicas: {{ .Values.financeAgent.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: finance-agent
+  template:
+    metadata:
+      labels:
+        {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: finance-agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: finance-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: finance-agent
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.financeAgent.image.repository }}:{{ .Values.financeAgent.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 9001
+              protocol: TCP
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: openai-api-key
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: anthropic-api-key
+            - name: KEYCLOAK_URL
+              value: "http://keycloak:8080"
+            - name: KEYCLOAK_ISSUER
+              value: "{{ .Values.publicKeycloakUrl }}/realms/{{ .Values.financeAgent.env.keycloakRealm }}"
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.financeAgent.env.keycloakRealm | quote }}
+            - name: KEYCLOAK_AUDIENCE
+              value: {{ .Values.financeAgent.env.keycloakAudience | quote }}
+            - name: TRANSACTION_API_URL
+              value: {{ .Values.financeAgent.env.transactionApiUrl | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.observability.otelEndpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: finance-agent
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=production"
+            - name: LOG_LEVEL
+              value: "INFO"
+            {{- if .Values.financeAgent.proxy.httpsProxy }}
+            - name: HTTPS_PROXY
+              value: {{ .Values.financeAgent.proxy.httpsProxy | quote }}
+            - name: NO_PROXY
+              value: {{ .Values.financeAgent.proxy.noProxy | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.financeAgent.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9001
+            initialDelaySeconds: {{ .Values.financeAgent.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.financeAgent.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.financeAgent.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9001
+            initialDelaySeconds: {{ .Values.financeAgent.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.financeAgent.probes.readiness.periodSeconds }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: finance-agent
+                topologyKey: kubernetes.io/hostname

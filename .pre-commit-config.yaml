@@ -1,0 +1,18 @@
+repos:
+  # Detect secrets and credentials before they reach the repo
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # Prevent committing .env files and private keys
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: end-of-file-fixer
+        exclude: '\.md$'
+      - id: trailing-whitespace
+        exclude: '\.md$'

@@ -4,9 +4,17 @@ import threading
 import time
 
 from confluent_kafka import Consumer
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+from auth import UserContext, require_user
 from sqlalchemy import create_engine, text
+
+from telemetry import configure_telemetry, get_logger
+
+_SERVICE_NAME = "activity-service"
+configure_telemetry(_SERVICE_NAME)
+logger = get_logger(_SERVICE_NAME)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
@@ -26,6 +34,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Prometheus metrics endpoint ────────────────────────────────────────────────
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app)
+except ImportError:
+    pass
 
 
 def kafka_consumer_loop():
@@ -57,6 +72,8 @@ def kafka_consumer_loop():
             amount = event.get("amount", 0)
             description = f"{activity_type} of {amount} by {user_id}"
 
+            logger.info("Processing Kafka event", extra={"user_id": user_id, "activity_type": activity_type})
+
             with engine.begin() as conn:
                 conn.execute(
                     text(
@@ -71,7 +88,8 @@ def kafka_consumer_loop():
                         "description": description,
                     },
                 )
-         except Exception:
+         except Exception as exc:
+            logger.error("Error in Kafka consumer loop", extra={"error": str(exc)})
             time.sleep(1)
 
 
@@ -87,7 +105,10 @@ def health():
 
 
 @app.get("/activities/{user_id}")
-def get_activities(user_id: str):
+def get_activities(user_id: str, user: UserContext = Depends(require_user)):
+    if user.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    logger.info("Fetching activities", extra={"user_id": user_id})
     with engine.begin() as conn:
         rows = conn.execute(
             text(

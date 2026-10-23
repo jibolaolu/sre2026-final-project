@@ -1,0 +1,74 @@
+# local-app.yaml — ArgoCD Application pre-configuration for local dev (Option B)
+#
+# Applied automatically by argocd-local.sh.
+# The REPO_URL placeholder is replaced at apply time from git remote or minikube mount.
+#
+# When going to prod (Option A):
+#   - Replace REPO_URL with your GitHub URL
+#   - Change values file to values-prod.yaml
+#   - Add syncPolicy.automated block
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: techbleat-bank
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  description: Techbleat Global Bank — local dev project
+  sourceRepos:
+    - '*'
+  destinations:
+    - namespace: banking
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'networking.k8s.io'
+      kind: NetworkPolicy
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: techbleat-bank
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app: techbleat-bank
+    environment: local
+spec:
+  project: techbleat-bank
+  source:
+    repoURL: __REPO_URL__          # replaced by argocd-local.sh
+    targetRevision: __REVISION__   # HEAD for local mount, main for GitHub
+    path: k8s/helm/techbleat-bank
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-local.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: banking
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas              # ignore HPA-managed replica counts
+    - group: ''
+      kind: Secret
+      jsonPointers:
+        - /data                       # ignore secret values (managed outside Git)

@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY agent.py auth.py main.py tools.py ./
+COPY agent.py auth.py guardrails.py main.py memory.py telemetry.py tools.py ./
 
 EXPOSE 9001
 

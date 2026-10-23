@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-transaction-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: transaction-service
+spec:
+  replicas: {{ .Values.transactionService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: transaction-service
+  template:
+    metadata:
+      labels:
+        {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: transaction-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      serviceAccountName: transaction-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: transaction-service
+          image: "{{ .Values.global.imageRegistry }}{{ .Values.transactionService.image.repository }}:{{ .Values.transactionService.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.transactionService.env.springDatasourceUrl | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.transactionService.env.springDatasourceUsername | quote }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: postgres-password
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: update
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.transactionService.env.kafkaBootstrapServers | quote }}
+            - name: REDIS_HOST
+              value: {{ .Values.transactionService.env.redisHost | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.transactionService.env.redisPort | quote }}
+            - name: SERVER_PORT
+              value: {{ .Values.transactionService.env.serverPort | quote }}
+            - name: FRONTEND_ORIGIN
+              value: {{ .Values.transactionService.env.frontendOrigin | quote }}
+            - name: KEYCLOAK_JWK_SET_URI
+              value: {{ .Values.transactionService.env.keycloakJwkSetUri | quote }}
+            # Set JAVA_TOOL_OPTIONS to activate the OTel Java agent when otelEndpoint is non-empty.
+            {{- if .Values.observability.otelEndpoint }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/app/opentelemetry-javaagent.jar"
+            {{- else }}
+            - name: JAVA_TOOL_OPTIONS
+              value: ""
+            {{- end }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.observability.otelEndpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: transaction-service
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment=production"
+            - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              value: "health,info,prometheus"
+            - name: MANAGEMENT_ENDPOINT_PROMETHEUS_ENABLED
+              value: "true"
+          resources:
+            {{- toYaml .Values.transactionService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: {{ .Values.transactionService.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.transactionService.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.transactionService.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: {{ .Values.transactionService.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.transactionService.probes.readiness.periodSeconds }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: transaction-service
+                topologyKey: kubernetes.io/hostname

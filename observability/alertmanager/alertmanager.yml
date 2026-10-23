@@ -1,0 +1,30 @@
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'mailpit:1025'
+  smtp_from: 'alertmanager@techbleat-bank.local'
+  smtp_require_tls: false
+
+route:
+  group_by: ['alertname', 'job', 'severity']
+  group_wait: 15s
+  group_interval: 5m
+  repeat_interval: 3h
+  receiver: 'banking-team'
+  routes:
+    - match:
+        severity: critical
+      repeat_interval: 1h
+
+receivers:
+  - name: 'banking-team'
+    email_configs:
+      - to: 'sre-team@techbleat-bank.local'
+        headers:
+          Subject: '[{{ .Status | toUpper }}] {{ .CommonAnnotations.summary }}'
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'job']

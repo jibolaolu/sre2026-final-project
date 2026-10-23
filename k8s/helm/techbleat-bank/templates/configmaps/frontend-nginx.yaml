@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-frontend-nginx
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+data:
+  default.conf: |
+    log_format trace_fmt '$remote_addr - $remote_user [$time_local] '
+                         '"$request" $status $body_bytes_sent '
+                         '"$http_referer" "$http_user_agent" '
+                         'req_id=$request_id';
+
+    server {
+        listen 80;
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        access_log /var/log/nginx/access.log trace_fmt;
+
+        # React/Vite frontend
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # FastAPI user service
+        location /user-api/ {
+            rewrite ^/user-api/(.*)$ /$1 break;
+            proxy_pass http://user-service:8000;
+
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID   $request_id;
+            proxy_set_header traceparent    $http_traceparent;
+            proxy_set_header tracestate     $http_tracestate;
+            add_header X-Request-ID         $request_id always;
+        }
+
+        # Spring Boot transaction service
+        location /transaction-api/ {
+            rewrite ^/transaction-api/(.*)$ /$1 break;
+            proxy_pass http://transaction-service:8080;
+
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID   $request_id;
+            proxy_set_header traceparent    $http_traceparent;
+            proxy_set_header tracestate     $http_tracestate;
+            add_header X-Request-ID         $request_id always;
+        }
+
+        # FastAPI activity service
+        location /activity-api/ {
+            rewrite ^/activity-api/(.*)$ /$1 break;
+            proxy_pass http://activity-service:8001;
+
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID   $request_id;
+            proxy_set_header traceparent    $http_traceparent;
+            proxy_set_header tracestate     $http_tracestate;
+            add_header X-Request-ID         $request_id always;
+        }
+
+        # FinanceAgent API
+        location /finance-agent-api/ {
+            rewrite ^/finance-agent-api/(.*)$ /$1 break;
+            proxy_pass http://finance-agent:9001;
+
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Request-ID   $request_id;
+            proxy_set_header traceparent    $http_traceparent;
+            proxy_set_header tracestate     $http_tracestate;
+            add_header X-Request-ID         $request_id always;
+        }
+
+        location = /frontend-health {
+            access_log off;
+            add_header Content-Type text/plain;
+            return 200 "healthy\n";
+        }
+    }

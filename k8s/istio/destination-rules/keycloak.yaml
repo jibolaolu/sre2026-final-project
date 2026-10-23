@@ -1,0 +1,10 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: keycloak
+  namespace: banking
+spec:
+  host: keycloak
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

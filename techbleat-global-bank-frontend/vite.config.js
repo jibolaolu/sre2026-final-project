@@ -11,12 +11,12 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       proxy: {
         '/user-api': {
-          target: env.VITE_USER_API_TARGET || 'http://localhost:8000',
+          target: env.VITE_USER_API_TARGET || 'http://localhost:8180',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/user-api/, ''),
         },
         '/transaction-api': {
-          target: env.VITE_TRANSACTION_API_TARGET || 'http://localhost:8080',
+          target: env.VITE_TRANSACTION_API_TARGET || 'http://localhost:8090',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/transaction-api/, ''),
         },
@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/activity-api/, ''),
         },
         '/finance-agent-api': {
-          target: env.VITE_FINANCE_AGENT_API_TARGET || 'http://localhost:9001',
+          target: env.VITE_FINANCE_AGENT_API_TARGET || 'http://localhost:9181',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/finance-agent-api/, ''),
         },

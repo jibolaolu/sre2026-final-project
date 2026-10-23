@@ -1,0 +1,10 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: activity-service
+  namespace: banking
+spec:
+  host: activity-service
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

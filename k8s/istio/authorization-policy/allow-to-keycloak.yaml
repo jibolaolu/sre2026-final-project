@@ -1,0 +1,21 @@
+# Allow all services in the banking namespace to reach Keycloak for authentication.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-services-to-keycloak
+  namespace: banking
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces: ["banking"]
+      to:
+        - operation:
+            methods: ["GET", "POST"]
+            paths:
+              - "/realms/*"
+              - "/admin/realms/*"

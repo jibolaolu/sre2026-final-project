@@ -1,0 +1,83 @@
+# Daily PostgreSQL backup to a PersistentVolume.
+# Retention: keeps last 7 daily dumps.
+# For production: replace the PVC target with an S3/GCS pre-signed URL or
+# an AWS Data Lifecycle Manager snapshot.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-pvc
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-postgres-backup
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-backup
+spec:
+  schedule: "0 2 * * *"          # 02:00 UTC daily
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "techbleat-bank.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: postgres-backup
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: postgres-backup-pvc
+          containers:
+            - name: pg-dump
+              image: postgres:15
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: banking-app-secrets
+                      key: postgres-password
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -eu
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  DUMP_FILE="/backup/bankingdb_${TIMESTAMP}.sql.gz"
+
+                  echo "[backup] Starting dump at ${TIMESTAMP}"
+                  pg_dump -h postgres -U bankuser -d bankingdb | gzip > "${DUMP_FILE}"
+                  echo "[backup] Dump written to ${DUMP_FILE} ($(du -sh ${DUMP_FILE} | cut -f1))"
+
+                  # Keep last 7 dumps
+                  cd /backup
+                  ls -t bankingdb_*.sql.gz | tail -n +8 | xargs -r rm --
+                  echo "[backup] Retention cleanup done. Current backups:"
+                  ls -lh bankingdb_*.sql.gz
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi

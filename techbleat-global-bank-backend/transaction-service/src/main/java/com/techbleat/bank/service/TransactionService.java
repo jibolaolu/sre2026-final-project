@@ -16,6 +16,8 @@ import org.springframework.web.server.ResponseStatusException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.transaction.annotation.Transactional;
+
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -38,6 +40,7 @@ public class TransactionService {
     private final String redisHost = System.getenv().getOrDefault("REDIS_HOST", "redis");
     private final int redisPort = Integer.parseInt(System.getenv().getOrDefault("REDIS_PORT", "6379"));
 
+    @Transactional
     public Map<String, Object> deposit(String userId, Double amount) {
         validateAmount(amount);
         Account account = getAccount(userId);
@@ -52,6 +55,7 @@ public class TransactionService {
         return Map.of("message", "Deposit successful", "balance", account.getBalance());
     }
 
+    @Transactional
     public Map<String, Object> withdraw(String userId, Double amount) {
         validateAmount(amount);
         Account account = getAccount(userId);
@@ -70,6 +74,7 @@ public class TransactionService {
         return Map.of("message", "Withdrawal successful", "balance", account.getBalance());
     }
 
+    @Transactional
     public Map<String, Object> transfer(String fromUserId, String toUserId, Double amount, String reference) {
         validateAmount(amount);
 
@@ -147,20 +152,18 @@ public class TransactionService {
         event.put("amount", amount);
         event.put("timestamp", Instant.now().toString());
 
-        try {
-            // Send to Kafka and wait for completion (with timeout) to catch errors before response
-            var sendFuture = kafkaTemplate.send("banking-transactions", userId, event);
-            var result = sendFuture.get(5000, java.util.concurrent.TimeUnit.MILLISECONDS);
-            logger.info("Kafka event published successfully - User: {}, Type: {}, Amount: {}", 
-                userId, eventType, amount);
-        } catch (java.util.concurrent.TimeoutException ex) {
-            logger.error("Kafka send timeout - User: {}, Type: {}, Amount: {}", userId, eventType, amount, ex);
-            throw new RuntimeException("Kafka event publishing timeout", ex);
-        } catch (Exception ex) {
-            logger.error("Failed to publish Kafka event - User: {}, Type: {}, Amount: {}, Error: {}", 
-                userId, eventType, amount, ex.getMessage(), ex);
-            throw new RuntimeException("Kafka event publishing failed: " + ex.getMessage(), ex);
-        }
+        // Fire-and-forget: Kafka is an audit concern, not a transaction gate.
+        // A Kafka outage must never block or fail a banking operation.
+        kafkaTemplate.send("banking-transactions", userId, event)
+            .whenComplete((result, ex) -> {
+                if (ex != null) {
+                    logger.error("Kafka publish failed — User: {}, Type: {}, Amount: {}, Error: {}",
+                        userId, eventType, amount, ex.getMessage());
+                } else {
+                    logger.info("Kafka event published — User: {}, Type: {}, Amount: {}",
+                        userId, eventType, amount);
+                }
+            });
     }
 
     private void cacheBalance(String userId, Double balance) {

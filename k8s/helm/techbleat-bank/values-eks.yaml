@@ -1,0 +1,109 @@
+# EKS overrides — apply on top of values.yaml:
+#   helm upgrade --install techbleat-bank ./k8s/helm/techbleat-bank \
+#     -f k8s/helm/techbleat-bank/values.yaml \
+#     -f k8s/helm/techbleat-bank/values-eks.yaml
+
+global:
+  # Replace 123456789012 with your AWS account ID and us-east-1 with your region.
+  imageRegistry: "123456789012.dkr.ecr.us-east-1.amazonaws.com/"
+  imagePullPolicy: Always
+  storageClass: gp3
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # Replace with your ACM certificate ARN.
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE_ME"
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+  hosts:
+    - host: bank.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+          port: 80
+  tls: []  # TLS is terminated at the ALB; no in-cluster TLS needed.
+
+# Scale up for production traffic
+userService:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    maxReplicas: 10
+
+transactionService:
+  replicaCount: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  autoscaling:
+    maxReplicas: 12
+
+activityService:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    maxReplicas: 8
+
+financeAgent:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  autoscaling:
+    maxReplicas: 6
+
+frontend:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  autoscaling:
+    maxReplicas: 8
+
+keycloak:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: "1"
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+postgres:
+  persistence:
+    size: 50Gi
+
+kafka:
+  persistence:
+    size: 50Gi

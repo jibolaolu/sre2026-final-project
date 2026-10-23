@@ -1,0 +1,85 @@
+{{- if gt (int .Values.userService.replicaCount) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-user-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: user-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: user-service
+{{- end }}
+{{- if gt (int .Values.transactionService.replicaCount) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-transaction-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: transaction-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: transaction-service
+{{- end }}
+{{- if gt (int .Values.activityService.replicaCount) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-activity-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: activity-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: activity-service
+{{- end }}
+{{- if gt (int .Values.financeAgent.replicaCount) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-finance-agent
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: finance-agent
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: finance-agent
+{{- end }}
+{{- if gt (int .Values.frontend.replicaCount) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-frontend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "techbleat-bank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: frontend
+{{- end }}

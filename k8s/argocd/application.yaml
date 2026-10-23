@@ -1,0 +1,70 @@
+# application.yaml — ArgoCD GitOps Application (Option A)
+#
+# WHEN TO USE:
+#   Activate this when deploying to a real environment (AWS EKS, staging, prod).
+#   For local dev, use Option B (argocd-local.sh) — no Git sync needed.
+#
+# HOW TO ACTIVATE:
+#   1. Push your repo to GitHub (if not already done)
+#   2. Set REPO_URL below to your GitHub repo URL
+#   3. Create k8s/helm/techbleat-bank/values-prod.yaml (or values-staging.yaml)
+#   4. kubectl apply -f k8s/argocd/application.yaml
+#   5. ArgoCD will auto-sync the Helm chart from Git on every push to main
+#
+# PRIVATE REPO:
+#   If your repo is private, add credentials first:
+#   argocd repo add https://github.com/YOUR_USER/YOUR_REPO.git \
+#     --username YOUR_USER --password YOUR_TOKEN
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: techbleat-bank
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+
+  source:
+    # ── UPDATE THIS to your actual GitHub repo URL ──────────────────────────
+    repoURL: https://github.com/YOUR_GITHUB_USER/sre2026-final-project.git
+    targetRevision: main
+    path: k8s/helm/techbleat-bank
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml      # create this for prod-specific overrides
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: banking
+
+  syncPolicy:
+    automated:
+      prune: true        # remove resources deleted from Git
+      selfHeal: true     # revert manual kubectl changes back to Git state
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+
+---
+# AppProject — restricts what ArgoCD can deploy (security best practice)
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  description: Techbleat Global Bank — default project
+  sourceRepos:
+    - '*'
+  destinations:
+    - namespace: banking
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
