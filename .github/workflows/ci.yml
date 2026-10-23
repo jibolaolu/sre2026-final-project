@@ -131,6 +131,7 @@ jobs:
 
       - name: Build image (and push on non-PR)
         id: build
+        if: env.DOCKERHUB_USERNAME != ''
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
