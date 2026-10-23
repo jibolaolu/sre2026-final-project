@@ -26,17 +26,17 @@ data:
             value: kubernetes
             action: upsert
     exporters:
-      {{- if .Values.observability.jaeger.enabled }}
-      otlp/jaeger:
-        endpoint: jaeger:4317
-        tls:
-          insecure: true
-      {{- end }}
-      prometheus:
-        endpoint: "0.0.0.0:8889"
-        namespace: banking
+      {{- if (.Values.observability.datadog | default dict).enabled }}
+      datadog:
+        api:
+          site: {{ (.Values.observability.datadog | default dict).site | default "datadoghq.com" }}
+          key: "${DD_API_KEY}"
+        host_metadata:
+          enabled: false
+      {{- else }}
       debug:
         verbosity: basic
+      {{- end }}
     extensions:
       health_check:
         endpoint: 0.0.0.0:13133
@@ -46,234 +46,13 @@ data:
         traces:
           receivers: [otlp]
           processors: [batch, resource]
-          exporters: [{{ if .Values.observability.jaeger.enabled }}otlp/jaeger{{ else }}debug{{ end }}]
+          exporters: [{{ if (.Values.observability.datadog | default dict).enabled }}datadog{{ else }}debug{{ end }}]
         metrics:
           receivers: [otlp]
           processors: [batch]
-          exporters: [prometheus]
-{{- end }}
-{{- if .Values.observability.grafana.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "techbleat-bank.fullname" . }}-grafana-datasources
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "techbleat-bank.labels" . | nindent 4 }}
-data:
-  datasources.yaml: |
-    apiVersion: 1
-    datasources:
-      - name: Prometheus
-        type: prometheus
-        uid: prometheus
-        url: http://prometheus:9090
-        access: proxy
-        isDefault: true
-        jsonData:
-          httpMethod: POST
-      {{- if .Values.observability.jaeger.enabled }}
-      - name: Jaeger
-        type: jaeger
-        uid: jaeger
-        url: http://jaeger:16686
-        access: proxy
-      {{- end }}
-      {{- if (.Values.observability.loki | default dict).enabled }}
-      - name: Loki
-        type: loki
-        uid: loki
-        url: http://loki:3100
-        access: proxy
-        jsonData:
-          maxLines: 1000
-      {{- end }}
-{{- end }}
-{{- if .Values.observability.prometheus.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "techbleat-bank.fullname" . }}-prometheus-config
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "techbleat-bank.labels" . | nindent 4 }}
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-      evaluation_interval: 15s
-
-    rule_files:
-      - /etc/prometheus/alert_rules.yml
-
-    scrape_configs:
-      {{- if .Values.observability.otelCollector.enabled }}
-      - job_name: otel-collector
-        static_configs:
-          - targets: ['otel-collector:8889']
-      {{- end }}
-      - job_name: user-service
-        static_configs:
-          - targets: ['user-service:8000']
-        metrics_path: /metrics
-      - job_name: activity-service
-        static_configs:
-          - targets: ['activity-service:8001']
-        metrics_path: /metrics
-      - job_name: transaction-service
-        static_configs:
-          - targets: ['transaction-service:8080']
-        metrics_path: /actuator/prometheus
-      - job_name: finance-agent
-        static_configs:
-          - targets: ['finance-agent:9001']
-        metrics_path: /metrics
-
-  alert_rules.yml: |
-    groups:
-      - name: banking-slo
-        interval: 30s
-        rules:
-          # SLO recording rules — 99.9% availability target
-          - record: job:http_requests_total:rate5m
-            expr: sum by (job) (rate(http_requests_total[5m]))
-          - record: job:http_requests_error:rate5m
-            expr: sum by (job) (rate(http_requests_total{status_code=~"5.."}[5m]))
-          - record: job:slo_availability:ratio_rate5m
-            expr: |
-              1 - (
-                job:http_requests_error:rate5m
-                / clamp_min(job:http_requests_total:rate5m, 1)
-              )
-          - record: job:slo_availability:ratio_rate1h
-            expr: |
-              1 - (
-                sum by (job) (rate(http_requests_total{status_code=~"5.."}[1h]))
-                / clamp_min(sum by (job) (rate(http_requests_total[1h])), 1)
-              )
-          - record: job:slo_availability:ratio_rate6h
-            expr: |
-              1 - (
-                sum by (job) (rate(http_requests_total{status_code=~"5.."}[6h]))
-                / clamp_min(sum by (job) (rate(http_requests_total[6h])), 1)
-              )
-          # Fast burn: consumes 2% of monthly error budget in 1 hour (14.4× burn)
-          - alert: SLOErrorBudgetFastBurn
-            expr: |
-              (job:slo_availability:ratio_rate1h < (1 - 14.4 * 0.001))
-              and
-              (job:slo_availability:ratio_rate5m < (1 - 14.4 * 0.001))
-            for: 2m
-            labels:
-              severity: critical
-            annotations:
-              summary: "SLO fast burn on {{ "{{" }} $labels.job {{ "}}" }}"
-              description: "{{ "{{" }} $labels.job {{ "}}" }} is burning through its error budget at 14x+ rate. Availability: {{ "{{" }} $value | humanizePercentage {{ "}}" }}"
-          # Slow burn: consumes 5% of monthly error budget in 6 hours (6x burn)
-          - alert: SLOErrorBudgetSlowBurn
-            expr: |
-              (job:slo_availability:ratio_rate6h < (1 - 6 * 0.001))
-              and
-              (job:slo_availability:ratio_rate1h < (1 - 6 * 0.001))
-            for: 15m
-            labels:
-              severity: warning
-            annotations:
-              summary: "SLO slow burn on {{ "{{" }} $labels.job {{ "}}" }}"
-              description: "{{ "{{" }} $labels.job {{ "}}" }} is burning error budget at 6x+ rate over 6h. Availability: {{ "{{" }} $value | humanizePercentage {{ "}}" }}"
-          # Latency SLO: p95 < 500ms
-          - alert: SLOLatencyBreach
-            expr: |
-              histogram_quantile(0.95,
-                sum by (job, le) (rate(http_request_duration_seconds_bucket[5m]))
-              ) > 0.5
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "Latency SLO breach on {{ "{{" }} $labels.job {{ "}}" }}"
-              description: "{{ "{{" }} $labels.job {{ "}}" }} p95 latency is {{ "{{" }} $value | humanizeDuration {{ "}}" }} (SLO: 500ms)"
-
-      - name: banking-service-health
-        interval: 30s
-        rules:
-          - alert: ServiceDown
-            expr: up == 0
-            for: 1m
-            labels:
-              severity: critical
-            annotations:
-              summary: "{{ "{{" }} $labels.job {{ "}}" }} is down"
-              description: "{{ "{{" }} $labels.job {{ "}}" }} ({{ "{{" }} $labels.instance {{ "}}" }}) unreachable for > 1 minute."
-          - alert: HighErrorRateFastAPI
-            expr: |
-              (
-                sum by (job) (rate(http_requests_total{status_code=~"5..",job=~"user-service|activity-service|finance-agent"}[5m]))
-                / clamp_min(sum by (job) (rate(http_requests_total{job=~"user-service|activity-service|finance-agent"}[5m])), 1)
-              ) > 0.05
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "High 5xx rate on {{ "{{" }} $labels.job {{ "}}" }}"
-              description: "{{ "{{" }} $labels.job {{ "}}" }} 5xx rate {{ "{{" }} $value | humanizePercentage {{ "}}" }} (threshold 5%)."
-          - alert: HighErrorRateTransactionService
-            expr: |
-              (
-                sum(rate(http_server_requests_seconds_count{job="transaction-service",status=~"5.."}[5m]))
-                / clamp_min(sum(rate(http_server_requests_seconds_count{job="transaction-service"}[5m])), 1)
-              ) > 0.05
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "High 5xx rate on transaction-service"
-              description: "transaction-service 5xx rate {{ "{{" }} $value | humanizePercentage {{ "}}" }} (threshold 5%)."
-          - alert: HighLatencyFastAPI
-            expr: |
-              histogram_quantile(0.95,
-                sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~"user-service|activity-service|finance-agent"}[5m]))
-              ) > 2
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "High p95 latency on {{ "{{" }} $labels.job {{ "}}" }}"
-              description: "{{ "{{" }} $labels.job {{ "}}" }} p95 latency {{ "{{" }} $value | humanizeDuration {{ "}}" }} (threshold 2s)."
-          - alert: HighLatencyTransactionService
-            expr: |
-              histogram_quantile(0.95,
-                sum by (le) (rate(http_server_requests_seconds_bucket{job="transaction-service"}[5m]))
-              ) > 2
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "High p95 latency on transaction-service"
-              description: "transaction-service p95 latency {{ "{{" }} $value | humanizeDuration {{ "}}" }} (threshold 2s)."
-
-      - name: banking-jvm
-        interval: 60s
-        rules:
-          - alert: JvmHeapHigh
-            expr: |
-              sum(jvm_memory_used_bytes{job="transaction-service",area="heap"})
-              / sum(jvm_memory_max_bytes{job="transaction-service",area="heap"} > 0)
-              > 0.85
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "JVM heap > 85% on transaction-service"
-              description: "JVM heap at {{ "{{" }} $value | humanizePercentage {{ "}}" }}."
-          - alert: HikariCpConnectionsExhausted
-            expr: hikaricp_connections_pending{job="transaction-service"} > 2
-            for: 2m
-            labels:
-              severity: critical
-            annotations:
-              summary: "HikariCP pool saturated on transaction-service"
-              description: "{{ "{{" }} $value {{ "}}" }} threads waiting for a DB connection."
+          exporters: [{{ if (.Values.observability.datadog | default dict).enabled }}datadog{{ else }}debug{{ end }}]
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [{{ if (.Values.observability.datadog | default dict).enabled }}datadog{{ else }}debug{{ end }}]
 {{- end }}

@@ -18,9 +18,7 @@ spec:
         {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: finance-agent
       annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "9001"
-        prometheus.io/path: "/metrics"
+        ad.datadoghq.com/finance-agent.logs: '[{"source":"python","service":"finance-agent"}]'
     spec:
       serviceAccountName: finance-agent
       securityContext:

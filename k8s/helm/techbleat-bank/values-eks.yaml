@@ -107,3 +107,13 @@ postgres:
 kafka:
   persistence:
     size: 50Gi
+
+# ── Observability ─────────────────────────────────────────────────────────────
+observability:
+  otelEndpoint: "http://otel-collector:4318"
+  otelCollector:
+    enabled: true
+  datadog:
+    enabled: true   # set secrets.datadogApiKey via AWS Secrets Manager / External Secrets
+    site: "datadoghq.com"
+    env: "production"

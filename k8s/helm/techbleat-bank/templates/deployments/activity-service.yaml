@@ -18,9 +18,7 @@ spec:
         {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: activity-service
       annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8001"
-        prometheus.io/path: "/metrics"
+        ad.datadoghq.com/activity-service.logs: '[{"source":"python","service":"activity-service"}]'
     spec:
       serviceAccountName: activity-service
       securityContext:

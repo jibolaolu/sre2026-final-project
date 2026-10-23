@@ -193,10 +193,7 @@ preload_image "quay.io/keycloak/keycloak:24.0.5"
 preload_image "redis:7"
 preload_image "confluentinc/cp-kafka:8.1.1"
 preload_image "curlimages/curl:8.10.1"
-preload_image "jaegertracing/all-in-one:1.61.0"
-preload_image "prom/prometheus:v2.55.0"
 preload_image "otel/opentelemetry-collector-contrib:0.111.0"
-preload_image "grafana/grafana:11.3.0"
 success "Third-party images ready."
 
 # ── 2. Build, push, and load service images ──────────────────────────────────
@@ -290,6 +287,7 @@ HELM_SET_KEYS=(
 # Pass AI API keys only if set in .env — strip \r so httpcore never rejects them
 [ -n "${OPENAI_API_KEY}"     ] && HELM_SET_KEYS+=("secrets.openaiApiKey=${OPENAI_API_KEY}")
 [ -n "${ANTHROPIC_API_KEY}"  ] && HELM_SET_KEYS+=("secrets.anthropicApiKey=${ANTHROPIC_API_KEY}")
+[ -n "${DD_API_KEY:-}"       ] && HELM_SET_KEYS+=("secrets.datadogApiKey=$(printf '%s' "${DD_API_KEY}" | tr -d '\r')")
 
 SET_ARGS=()
 for kv in "${HELM_SET_KEYS[@]}"; do SET_ARGS+=(--set "${kv}"); done
@@ -338,49 +336,29 @@ else
   warn "Keycloak deployment not found — skipping role grant."
 fi
 
-# ── 4b. Install Loki + Promtail (log aggregation) ────────────────────────────
-# grafana/loki-stack deploys Loki and a Promtail DaemonSet into the banking
-# namespace so Grafana can query pod logs without a sidecar per pod.
-# Idempotent: helm upgrade --install is a no-op if already at the same version.
-info "Installing Loki + Promtail for log aggregation..."
-helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
-helm repo update grafana 2>/dev/null || true
-preload_image "grafana/loki:2.9.10"
-preload_image "grafana/promtail:2.9.10"
-helm upgrade --install loki grafana/loki-stack \
-  --namespace "${NAMESPACE}" \
-  --version 2.10.2 \
-  --set grafana.enabled=false \
-  --set prometheus.enabled=false \
-  --set "loki.image.tag=2.9.10" \
-  --set "promtail.image.tag=2.9.10" \
-  --set loki.persistence.enabled=false \
-  --set loki.resources.requests.cpu=100m \
-  --set loki.resources.requests.memory=128Mi \
-  --set loki.resources.limits.cpu=500m \
-  --set loki.resources.limits.memory=256Mi \
-  --set promtail.resources.requests.cpu=50m \
-  --set promtail.resources.requests.memory=64Mi
-success "Loki + Promtail installed. Logs will appear in Grafana → Explore → Loki datasource."
-
-# Enable volume_enabled in Loki config (required for Grafana Logs Drilldown histogram)
-# Helm release=loki + chart=loki-stack → ConfigMap is named loki-loki-stack
-kubectl get configmap loki-loki-stack -n "${NAMESPACE}" -o json > /tmp/loki-cm.json 2>/dev/null && \
-python3 -c "
-import json, sys
-with open('/tmp/loki-cm.json') as f: cm = json.load(f)
-key = [k for k in cm['data'] if 'yaml' in k.lower()][0]
-cfg = cm['data'][key]
-if 'volume_enabled' not in cfg:
-    cm['data'][key] = cfg + '\nlimits_config:\n  volume_enabled: true\n'
-with open('/tmp/loki-cm-patched.json', 'w') as f: json.dump(cm, f)
-" && kubectl apply -f /tmp/loki-cm-patched.json >/dev/null \
-  && info "Loki volume_enabled patched." \
-  || warn "Could not patch Loki ConfigMap — run manually after deploy."
-
-# Restart Grafana so it picks up the new Loki datasource from the ConfigMap
-# Deployment name follows the Helm fullname helper: <release>-grafana
-kubectl rollout restart deployment/"${RELEASE}"-grafana -n "${NAMESPACE}" 2>/dev/null || true
+# ── 4b. Install Datadog Agent (log collection, APM, metrics) ─────────────────
+# Requires DD_API_KEY in .env. The Datadog Agent DaemonSet reads the Autodiscovery
+# annotations on each pod (ad.datadoghq.com/<container>.logs) for log tagging.
+if [ -n "${DD_API_KEY:-}" ]; then
+  DD_API_KEY_CLEAN="$(printf '%s' "${DD_API_KEY}" | tr -d '\r')"
+  info "Installing Datadog Agent via Helm..."
+  helm repo add datadog https://helm.datadoghq.com 2>/dev/null || true
+  helm repo update datadog 2>/dev/null || true
+  helm upgrade --install datadog-agent datadog/datadog \
+    --namespace "${NAMESPACE}" \
+    --set datadog.apiKey="${DD_API_KEY_CLEAN}" \
+    --set datadog.site="datadoghq.com" \
+    --set datadog.logs.enabled=true \
+    --set datadog.logs.containerCollectAll=true \
+    --set datadog.apm.portEnabled=true \
+    --set datadog.processAgent.enabled=true \
+    --set agents.image.tag="7" \
+    --set clusterAgent.enabled=false
+  success "Datadog Agent installed. Logs and APM traces will flow to https://app.datadoghq.com"
+else
+  warn "DD_API_KEY not set — Datadog Agent not installed."
+  warn "Add DD_API_KEY=<your-key> to .env and re-run to enable observability."
+fi
 
 # ── Patch CoreDNS to resolve external AI API hosts from inside pods ───────────
 # minikube pods cannot reach 8.8.8.8 (UDP blocked); static hosts bypass forwarding.
@@ -437,20 +415,13 @@ setup_ingress_portforward() {
 INGRESS_PORT=8080
 
 setup_observability_portforwards() {
-  pkill -f "kubectl port-forward svc/grafana"    2>/dev/null || true
-  pkill -f "kubectl port-forward svc/prometheus" 2>/dev/null || true
-  pkill -f "kubectl port-forward svc/jaeger"     2>/dev/null || true
-  pkill -f "kubectl port-forward svc/loki"       2>/dev/null || true
-  sleep 3   # wait for ports to be released before rebinding
-  info "Starting observability port-forwards..."
-  nohup kubectl port-forward svc/grafana    3000:3000  -n "${NAMESPACE}" >/tmp/pf-grafana.log    2>&1 & disown
-  nohup kubectl port-forward svc/prometheus 9090:9090  -n "${NAMESPACE}" >/tmp/pf-prometheus.log 2>&1 & disown
-  nohup kubectl port-forward svc/jaeger     16686:16686 -n "${NAMESPACE}" >/tmp/pf-jaeger.log    2>&1 & disown
-  if kubectl get svc loki -n "${NAMESPACE}" >/dev/null 2>&1; then
-    nohup kubectl port-forward svc/loki 3100:3100 -n "${NAMESPACE}" >/tmp/pf-loki.log 2>&1 & disown
-    success "Observability port-forwards started (Grafana:3000, Prometheus:9090, Jaeger:16686, Loki:3100)."
+  # Observability is now via Datadog — no local port-forwards needed.
+  # OTel Collector health check: kubectl port-forward svc/otel-collector 13133:13133 -n "${NAMESPACE}"
+  info "Observability via Datadog — no local port-forwards needed."
+  if [ -n "${DD_API_KEY:-}" ]; then
+    info "View logs, traces, and metrics at https://app.datadoghq.com"
   else
-    success "Observability port-forwards started (Grafana:3000, Prometheus:9090, Jaeger:16686)."
+    warn "DD_API_KEY not set — Datadog Agent not running. Telemetry will be discarded by the debug exporter."
   fi
 }
 
@@ -519,11 +490,9 @@ printf '  Ingress port-forwards running: WSL=8080/8443, Windows=80/443.\n\n'
 printf '    Frontend  : http://techbleat-bank.local\n'
 printf '    Keycloak  : http://keycloak.techbleat-bank.local/admin\n'
 printf '    Demo user : bankingdemo / Demo@2024\n\n'
-printf '  ── Observability (port-forwards already running) ───────\n'
-printf '    Grafana    : http://localhost:3000  (admin / admin)\n'
-printf '    Prometheus : http://localhost:9090\n'
-printf '    Jaeger     : http://localhost:16686\n'
-printf '    Loki       : http://localhost:3100  (via Grafana Explore)\n'
+printf '  ── Observability ───────────────────────────────────────\n'
+printf '    Datadog    : https://app.datadoghq.com\n'
+printf '                 (requires DD_API_KEY in .env)\n'
 printf '    ArgoCD     : http://localhost:8088  (admin / see below)\n\n'
 ARGOCD_PASS=$(kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" 2>/dev/null | base64 -d 2>/dev/null || echo "run: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d")
@@ -532,8 +501,4 @@ printf '  ── Minikube dashboard ──────────────�
 printf '    minikube dashboard --profile %s\n\n' "${CLUSTER_NAME}"
 printf '  ── Port-forward logs ───────────────────────────────────\n'
 printf '    Ingress    : /tmp/pf-ingress.log\n'
-printf '    Grafana    : /tmp/pf-grafana.log\n'
-printf '    Prometheus : /tmp/pf-prometheus.log\n'
-printf '    Jaeger     : /tmp/pf-jaeger.log\n'
-printf '    Loki       : /tmp/pf-loki.log\n'
 printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'

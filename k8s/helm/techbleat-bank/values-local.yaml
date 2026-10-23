@@ -105,8 +105,12 @@ observability:
   # The OTel Java agent uses OkHttp (HTTP/1.1) so it must target port 4318.
   # Python services also default to OTLP/HTTP.
   otelEndpoint: "http://otel-collector:4318"
-  loki:
-    enabled: true   # deploys loki-stack (Loki + Promtail) via deploy-local.sh
+  otelCollector:
+    enabled: true
+  datadog:
+    enabled: false   # set true + add DD_API_KEY to .env when you have a Datadog account
+    site: "datadoghq.com"
+    env: "local"
 
 # ── Keycloak client redirect URIs (local) ───────────────────────────────────
 keycloakClients:

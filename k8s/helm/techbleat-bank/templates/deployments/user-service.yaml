@@ -18,9 +18,7 @@ spec:
         {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: user-service
       annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8000"
-        prometheus.io/path: "/metrics"
+        ad.datadoghq.com/user-service.logs: '[{"source":"python","service":"user-service"}]'
     spec:
       serviceAccountName: user-service
       securityContext:

@@ -40,27 +40,28 @@ secrets:
   financeAgentKcSecret: "changeme"
   openaiApiKey: "changeme"
   anthropicApiKey: "changeme"
+  datadogApiKey: "changeme"
 
 # ── Observability ─────────────────────────────────────────────────────────────
 observability:
-  otelEndpoint: ""   # e.g. "http://otel-collector:4317" — empty = no-op
-  jaeger:
-    enabled: true
-    image: jaegertracing/all-in-one
-    tag: "1.61.0"
-  prometheus:
-    enabled: true
-    image: prom/prometheus
-    tag: "v2.55.0"
+  otelEndpoint: ""   # e.g. "http://otel-collector:4318" — empty = no-op
   otelCollector:
     enabled: true
     image: otel/opentelemetry-collector-contrib
     tag: "0.111.0"
-  grafana:
-    enabled: true
-    image: grafana/grafana
-    tag: "11.3.0"
-    adminPassword: "admin"
+  datadog:
+    enabled: false          # set true + provide datadogApiKey to activate
+    site: "datadoghq.com"   # EU users: datadoghq.eu
+    env: "production"
+    service: "techbleat-bank"
+    version: ""             # set via --set at deploy time
+    apm:
+      enabled: true
+    logs:
+      enabled: true
+      containerCollectAll: true
+    processAgent:
+      enabled: true
 
 # ── Istio ─────────────────────────────────────────────────────────────────────
 istio:
