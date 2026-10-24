@@ -347,14 +347,14 @@ if [ -n "${DD_API_KEY:-}" ]; then
   helm upgrade --install datadog-agent datadog/datadog \
     --namespace "${NAMESPACE}" \
     --set datadog.apiKey="${DD_API_KEY_CLEAN}" \
-    --set datadog.site="datadoghq.com" \
+    --set datadog.site="${DD_SITE:-datadoghq.com}" \
     --set datadog.logs.enabled=true \
     --set datadog.logs.containerCollectAll=true \
     --set datadog.apm.portEnabled=true \
     --set datadog.processAgent.enabled=true \
     --set agents.image.tag="7" \
     --set clusterAgent.enabled=false
-  success "Datadog Agent installed. Logs and APM traces will flow to https://app.datadoghq.com"
+  success "Datadog Agent installed. Logs and APM traces will flow to https://app.${DD_SITE:-datadoghq.com}"
 else
   warn "DD_API_KEY not set — Datadog Agent not installed."
   warn "Add DD_API_KEY=<your-key> to .env and re-run to enable observability."

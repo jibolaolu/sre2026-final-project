@@ -109,7 +109,7 @@ observability:
     enabled: true
   datadog:
     enabled: false   # set true + add DD_API_KEY to .env when you have a Datadog account
-    site: "datadoghq.com"
+    site: "datadoghq.eu"   # EU account — change to datadoghq.com for US
     env: "local"
 
 # ── Keycloak client redirect URIs (local) ───────────────────────────────────
