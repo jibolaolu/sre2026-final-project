@@ -70,6 +70,25 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
 
+      # StatefulSet volumeClaimTemplates are immutable in Kubernetes.
+      # If the Redis StatefulSet was created before AOF persistence was added,
+      # delete it so Helm can recreate it with the new volumeClaimTemplate.
+      # Pods are recreated automatically; data loss is acceptable in local dev.
+      - name: Recreate immutable StatefulSets if needed (local-minikube)
+        if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
+        run: |
+          for sts in redis kafka; do
+            STS_NAME="${{ env.RELEASE }}-${sts}"
+            if kubectl get statefulset "${STS_NAME}" -n ${{ env.NAMESPACE }} &>/dev/null; then
+              VCT=$(kubectl get statefulset "${STS_NAME}" -n ${{ env.NAMESPACE }} \
+                -o jsonpath='{.spec.volumeClaimTemplates}' 2>/dev/null || echo "")
+              if [ -z "${VCT}" ] || [ "${VCT}" = "null" ]; then
+                echo "Deleting ${STS_NAME} (no volumeClaimTemplates — will be recreated with persistence)"
+                kubectl delete statefulset "${STS_NAME}" -n ${{ env.NAMESPACE }} --cascade=orphan
+              fi
+            fi
+          done
+
       - name: Helm deploy (local-minikube)
         if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
         run: |
