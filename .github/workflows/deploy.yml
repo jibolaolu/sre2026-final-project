@@ -52,8 +52,14 @@ jobs:
         id: tag
         run: |
           TAG="${{ inputs.image_tag }}"
+          ENV="${{ inputs.environment || 'local-minikube' }}"
           if [ -z "$TAG" ]; then
-            TAG=$(git rev-parse --short HEAD)
+            if [ "$ENV" = "local-minikube" ]; then
+              # Local dev: default to 'latest' — git-SHA tags only exist after a build-push run.
+              TAG="latest"
+            else
+              TAG=$(git rev-parse --short HEAD)
+            fi
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Deploying tag: $TAG"
@@ -114,7 +120,7 @@ jobs:
             --set secrets.openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
             --set secrets.anthropicApiKey="${{ secrets.ANTHROPIC_API_KEY }}" \
             --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}" \
-            --wait --timeout 15m
+            --atomic --timeout 5m
 
       # ── local-kind: spin up a kind cluster in the GitHub-hosted runner ───────
       - name: Setup kind cluster
