@@ -61,7 +61,13 @@ info "Syncing secrets to ${REPO_PATH}..."
 printf '\n'
 
 # Docker Hub (for image builds and local-kind deploys)
-set_secret "DOCKERHUB_USERNAME"               "${DOCKERHUB_USERNAME:-}"
+# Username is set as a *variable* (not secret) so it interpolates at workflow-level env too.
+if [ -n "${DOCKERHUB_USERNAME:-}" ]; then
+  printf '%s' "${DOCKERHUB_USERNAME}" | gh variable set "DOCKERHUB_USERNAME" --repo "${REPO_PATH}" --body -
+  success "Set variable: DOCKERHUB_USERNAME"
+else
+  info "Skipping DOCKERHUB_USERNAME variable (empty value)"
+fi
 set_secret "DOCKERHUB_TOKEN"                  "${DOCKERHUB_TOKEN:-}"
 
 # Kubernetes app secrets
