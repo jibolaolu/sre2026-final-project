@@ -41,12 +41,8 @@ ingress:
           pathType: Prefix
           service: frontend
           port: 80
-    - host: keycloak.techbleat-bank.local
-      paths:
-        - path: /
-          pathType: Prefix
-          service: keycloak
-          port: 8080
+    # keycloak.techbleat-bank.local is handled by the dedicated keycloak ingress
+    # (techbleat-bank-keycloak) which sets proxy-buffer-size: 128k for large JWT headers.
 
 # ── TLS — cert-manager self-signed (optional for local HTTPS) ───────────────
 tls:
