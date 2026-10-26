@@ -26,33 +26,15 @@ env:
   NAMESPACE: banking
   RELEASE: techbleat-bank
 
-# ── Job 1: pick the right runner ──────────────────────────────────────────────
 # local-minikube → self-hosted runner on THIS machine (has kubectl/helm/minikube)
 # all others     → GitHub-hosted ubuntu-latest
+#
+# runs-on is computed inline to avoid the two-job fromJSON-output pattern,
+# which GitHub Actions masks when the output contains a secret substring.
 jobs:
-  determine-runner:
-    name: Select runner
-    runs-on: ubuntu-latest
-    outputs:
-      runner: ${{ steps.pick.outputs.runner }}
-    steps:
-      - name: Pick runner labels
-        id: pick
-        run: |
-          ENV="${{ inputs.environment || 'local-minikube' }}"
-          if [[ "$ENV" == "local-minikube" ]]; then
-            echo 'runner=["self-hosted","linux","local-minikube"]' >> "$GITHUB_OUTPUT"
-            echo "→ Self-hosted runner (local minikube)"
-          else
-            echo 'runner=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
-            echo "→ GitHub-hosted runner"
-          fi
-
-# ── Job 2: deploy ─────────────────────────────────────────────────────────────
   deploy:
     name: Deploy to ${{ inputs.environment || 'local-minikube' }}
-    needs: determine-runner
-    runs-on: ${{ fromJSON(needs.determine-runner.outputs.runner) }}
+    runs-on: ${{ (inputs.environment == 'local-minikube' || inputs.environment == '') && fromJSON('["self-hosted","linux","local-minikube"]') || 'ubuntu-latest' }}
     environment: ${{ inputs.environment || 'local-minikube' }}
 
     steps:
