@@ -20,6 +20,7 @@
 #   SKIP_CLUSTER               set to 1 to skip minikube start
 #   IMAGE_TAG                  override image tag (default: git short SHA)
 set -euo pipefail
+trap 'echo "[local] ERROR: script exited at line $LINENO (exit code $?)" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHART_DIR="${SCRIPT_DIR}/../helm/techbleat-bank"
@@ -95,12 +96,24 @@ POSTGRES_PASSWORD="$(printf '%s' "${POSTGRES_PASSWORD}" | tr -d '\r')"
 KEYCLOAK_ADMIN_PASSWORD="$(printf '%s' "${KEYCLOAK_ADMIN_PASSWORD}" | tr -d '\r')"
 KC_ADMIN_CLIENT_SECRET="$(printf '%s' "${KC_ADMIN_CLIENT_SECRET}" | tr -d '\r')"
 
-# ── Require DOCKERHUB_USERNAME ────────────────────────────────────────────────
-if [ -z "${DOCKERHUB_USERNAME:-}" ]; then
-  die "Set DOCKERHUB_USERNAME in .env or export it before running this script."
-fi
+# ── Registry: GHCR (recommended) or Docker Hub ───────────────────────────────
+# Set GITHUB_USERNAME in .env to push to ghcr.io/<username>/<service> (matches CI).
+# Falls back to DOCKERHUB_USERNAME if GITHUB_USERNAME is not set.
+GITHUB_USERNAME="$(printf '%s' "${GITHUB_USERNAME:-}" | tr -d '\r')"
+DOCKERHUB_USERNAME="$(printf '%s' "${DOCKERHUB_USERNAME:-}" | tr -d '\r')"
+IMAGE_TAG="$(printf '%s' "${IMAGE_TAG}" | tr -d '\r')"
 
-info "Using image registry: ${DOCKERHUB_USERNAME}/"
+if [ -n "${GITHUB_USERNAME}" ]; then
+  IMAGE_REGISTRY="ghcr.io/${GITHUB_USERNAME}/"
+  REGISTRY_LOGIN_HOST="ghcr.io"
+  info "Using GHCR registry: ${IMAGE_REGISTRY}"
+elif [ -n "${DOCKERHUB_USERNAME}" ]; then
+  IMAGE_REGISTRY="${DOCKERHUB_USERNAME}/"
+  REGISTRY_LOGIN_HOST="docker.io"
+  info "Using Docker Hub registry: ${IMAGE_REGISTRY}"
+else
+  die "Set GITHUB_USERNAME (GHCR) or DOCKERHUB_USERNAME (Docker Hub) in .env before running this script."
+fi
 info "Image tag: ${IMAGE_TAG}"
 
 # ── 0. Check prerequisites ────────────────────────────────────────────────────
@@ -207,18 +220,27 @@ load_into_minikube() {
 }
 
 if [ "${SKIP_BUILD}" != "1" ]; then
-  info "Logging in to Docker Hub..."
-  if [ -n "${DOCKERHUB_TOKEN:-}" ]; then
-    echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+  if [ "${REGISTRY_LOGIN_HOST}" = "ghcr.io" ]; then
+    info "Logging in to GitHub Container Registry (ghcr.io)..."
+    _ghcr_token="$(printf '%s' "${GITHUB_TOKEN:-${GITHUB_PAT:-}}" | tr -d '\r')"
+    if [ -z "${_ghcr_token}" ]; then
+      die "Set GITHUB_TOKEN or GITHUB_PAT in .env to push to ghcr.io."
+    fi
+    echo "${_ghcr_token}" | docker login ghcr.io -u "${GITHUB_USERNAME}" --password-stdin
   else
-    docker login -u "${DOCKERHUB_USERNAME}"
+    info "Logging in to Docker Hub..."
+    if [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+      echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+    else
+      docker login -u "${DOCKERHUB_USERNAME}"
+    fi
   fi
 
   build_push_load() {
     local name=$1
     local context=$2
     local dockerfile=${3:-${context}/Dockerfile}
-    local image="${DOCKERHUB_USERNAME}/${name}:${IMAGE_TAG}"
+    local image="${IMAGE_REGISTRY}${name}:${IMAGE_TAG}"
     info "Building ${image}..."
     docker build -t "${image}" -f "${dockerfile}" "${context}"
     docker push "${image}"
@@ -231,7 +253,7 @@ if [ "${SKIP_BUILD}" != "1" ]; then
   build_push_load activity-service    "${REPO_ROOT}/techbleat-global-bank-backend/activity-service"
   build_push_load finance-agent       "${REPO_ROOT}/finance-agent"
 
-  FRONTEND_IMAGE="${DOCKERHUB_USERNAME}/frontend:${IMAGE_TAG}"
+  FRONTEND_IMAGE="${IMAGE_REGISTRY}frontend:${IMAGE_TAG}"
   docker build \
     --build-arg VITE_KEYCLOAK_URL="http://keycloak.techbleat-bank.local" \
     --build-arg VITE_KEYCLOAK_REALM="banking" \
@@ -247,7 +269,7 @@ else
   # Image name = imageRegistry + repository = DOCKERHUB_USERNAME/service-name
   # (mirrors the Helm template: {{ .Values.global.imageRegistry }}{{ .Values.*.image.repository }})
   for svc in user-service transaction-service activity-service finance-agent frontend; do
-    load_into_minikube "${DOCKERHUB_USERNAME}/${svc}:${IMAGE_TAG}"
+    load_into_minikube "${IMAGE_REGISTRY}${svc}:${IMAGE_TAG}"
   done
   success "Banking app images loaded into minikube."
 fi
@@ -273,7 +295,7 @@ kubectl delete pvc "kafka-data-${RELEASE}-kafka-0" -n "${NAMESPACE}" --ignore-no
 # ── 4. Helm deploy ───────────────────────────────────────────────────────────
 info "Deploying with Helm (release: ${RELEASE})..."
 HELM_SET_KEYS=(
-  "global.imageRegistry=${DOCKERHUB_USERNAME}/"
+  "global.imageRegistry=${IMAGE_REGISTRY}"
   "global.imagePullPolicy=IfNotPresent"
   "userService.image.tag=${IMAGE_TAG}"
   "transactionService.image.tag=${IMAGE_TAG}"
@@ -336,29 +358,127 @@ else
   warn "Keycloak deployment not found — skipping role grant."
 fi
 
-# ── 4b. Install Datadog Agent (log collection, APM, metrics) ─────────────────
-# Requires DD_API_KEY in .env. The Datadog Agent DaemonSet reads the Autodiscovery
-# annotations on each pod (ad.datadoghq.com/<container>.logs) for log tagging.
-if [ -n "${DD_API_KEY:-}" ]; then
-  DD_API_KEY_CLEAN="$(printf '%s' "${DD_API_KEY}" | tr -d '\r')"
-  info "Installing Datadog Agent via Helm..."
+# ── 4b. Install Datadog Operator + Agent (logs, APM, metrics) ────────────────
+# Uses the Datadog Operator pattern (DatadogAgent CR) so the Agent DaemonSet
+# is fully managed and can be upgraded without re-running this script.
+# Requires DD_API_KEY in .env. Skipped gracefully when not set.
+DD_API_KEY_CLEAN="$(printf '%s' "${DD_API_KEY:-}" | tr -d '\r')"
+DD_SITE_CLEAN="$(printf '%s' "${DD_SITE:-datadoghq.com}" | tr -d '\r')"
+
+if [ -n "${DD_API_KEY_CLEAN}" ]; then
+  info "Setting up Datadog Operator + Agent (site: ${DD_SITE_CLEAN})..."
+
+  # ── Remove old Helm-managed agent if it was installed the wrong way ──────
+  if helm status datadog-agent -n "${NAMESPACE}" >/dev/null 2>&1; then
+    info "  Removing legacy datadog-agent Helm release from ${NAMESPACE}..."
+    helm uninstall datadog-agent -n "${NAMESPACE}" 2>/dev/null || true
+  fi
+
+  # ── Remove old self-hosted stack (loki, grafana, prometheus, jaeger) ─────
+  info "  Removing old observability stack (Loki, Grafana, Prometheus, Jaeger)..."
+  helm uninstall loki -n "${NAMESPACE}" 2>/dev/null || true
+  for dep in grafana prometheus jaeger; do
+    kubectl delete deployment "${RELEASE}-${dep}" -n "${NAMESPACE}" \
+      --ignore-not-found 2>/dev/null || true
+  done
+
+  # ── Install Datadog Operator into its own namespace ──────────────────────
   helm repo add datadog https://helm.datadoghq.com 2>/dev/null || true
   helm repo update datadog 2>/dev/null || true
-  helm upgrade --install datadog-agent datadog/datadog \
-    --namespace "${NAMESPACE}" \
-    --set datadog.apiKey="${DD_API_KEY_CLEAN}" \
-    --set datadog.site="${DD_SITE:-datadoghq.com}" \
-    --set datadog.logs.enabled=true \
-    --set datadog.logs.containerCollectAll=true \
-    --set datadog.apm.portEnabled=true \
-    --set datadog.processAgent.enabled=true \
-    --set agents.image.tag="7" \
-    --set clusterAgent.enabled=false
-  success "Datadog Agent installed. Logs and APM traces will flow to https://app.${DD_SITE:-datadoghq.com}"
+  kubectl create namespace datadog --dry-run=client -o yaml | kubectl apply -f -
+  helm upgrade --install datadog-operator datadog/datadog-operator \
+    --namespace datadog \
+    --set image.pullPolicy=IfNotPresent \
+    --wait --timeout=120s
+  success "  Datadog Operator installed."
+
+  # ── Create API key secret ─────────────────────────────────────────────────
+  kubectl create secret generic datadog-secret \
+    --from-literal api-key="${DD_API_KEY_CLEAN}" \
+    -n datadog \
+    --dry-run=client -o yaml | kubectl apply -f -
+  success "  datadog-secret created in namespace datadog."
+
+  # ── Apply DatadogAgent CR ─────────────────────────────────────────────────
+  kubectl apply -f - <<DDAGENT
+apiVersion: datadoghq.com/v2alpha1
+kind: DatadogAgent
+metadata:
+  name: datadog
+  namespace: datadog
+spec:
+  global:
+    clusterName: "${CLUSTER_NAME}"
+    site: "${DD_SITE_CLEAN}"
+    credentials:
+      apiSecret:
+        secretName: "datadog-secret"
+        keyName: "api-key"
+    kubelet:
+      tlsVerify: false
+  features:
+    logCollection:
+      enabled: true
+      containerCollectAll: true
+    apm:
+      enabled: true
+    liveProcessCollection:
+      enabled: false
+    orchestratorExplorer:
+      enabled: true
+    clusterChecks:
+      enabled: true
+  override:
+    nodeAgent:
+      env:
+        - name: DD_HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: DD_KUBELET_TLS_VERIFY
+          value: "false"
+DDAGENT
+
+  success "DatadogAgent CR applied. Agent DaemonSet is starting — check: kubectl get pods -n datadog"
+  info "  View logs, traces, and metrics at https://app.${DD_SITE_CLEAN}"
 else
-  warn "DD_API_KEY not set — Datadog Agent not installed."
-  warn "Add DD_API_KEY=<your-key> to .env and re-run to enable observability."
+  warn "DD_API_KEY not set — Datadog Agent skipped."
+  warn "Add DD_API_KEY=<your-key> (and optionally DD_SITE=datadoghq.eu) to .env and re-run."
 fi
+
+# ── 4c. Install Istio service mesh ────────────────────────────────────────────
+# mTLS between all services, fine-grained AuthorizationPolicies, and WAF-ready ingress.
+if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
+  info "Istio (istiod) already installed — skipping."
+else
+  info "Installing Istio via Helm (base → istiod → ingressgateway)..."
+  helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
+  helm repo update istio 2>/dev/null || true
+  kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
+  helm upgrade --install istio-base istio/base \
+    -n istio-system --wait --timeout=120s
+  helm upgrade --install istiod istio/istiod \
+    -n istio-system --wait --timeout=300s
+  helm upgrade --install istio-ingressgateway istio/gateway \
+    -n istio-system --wait --timeout=120s \
+    --set service.type=NodePort
+  success "Istio installed (istiod + ingressgateway)."
+fi
+
+kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite
+
+info "Applying Istio mesh policies (PeerAuthentication, DestinationRules, AuthorizationPolicies, Gateway, VirtualServices)..."
+kubectl apply -f "${REPO_ROOT}/k8s/istio/peer-authentication.yaml" 2>/dev/null || \
+  warn "peer-authentication.yaml apply failed — verify Istio CRDs are ready"
+[ -d "${REPO_ROOT}/k8s/istio/destination-rules" ] && \
+  kubectl apply -f "${REPO_ROOT}/k8s/istio/destination-rules/" 2>/dev/null || true
+[ -d "${REPO_ROOT}/k8s/istio/authorization-policy" ] && \
+  kubectl apply -f "${REPO_ROOT}/k8s/istio/authorization-policy/" 2>/dev/null || true
+[ -f "${REPO_ROOT}/k8s/istio/gateway.yaml" ] && \
+  kubectl apply -f "${REPO_ROOT}/k8s/istio/gateway.yaml" 2>/dev/null || true
+[ -d "${REPO_ROOT}/k8s/istio/virtual-services" ] && \
+  kubectl apply -f "${REPO_ROOT}/k8s/istio/virtual-services/" 2>/dev/null || true
+success "Istio policies applied."
 
 # ── Patch CoreDNS to resolve external AI API hosts from inside pods ───────────
 # minikube pods cannot reach 8.8.8.8 (UDP blocked); static hosts bypass forwarding.
@@ -459,6 +579,51 @@ check_windows_hosts() {
 # ── 5. Network access, observability, and print access instructions ──────────
 setup_ingress_portforward
 setup_observability_portforwards
+
+# ── 5b. Install ArgoCD (GitOps controller) ───────────────────────────────────
+if kubectl get deployment argocd-server -n argocd >/dev/null 2>&1; then
+  info "ArgoCD already installed."
+else
+  info "Installing ArgoCD via Helm..."
+  helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
+  helm repo update argo 2>/dev/null || true
+  helm upgrade --install argocd argo/argo-cd \
+    --namespace argocd \
+    --create-namespace \
+    --set server.insecure=true \
+    --wait --timeout=300s
+  success "ArgoCD installed in namespace argocd."
+fi
+
+GITHUB_REPO_URL_CLEAN="$(printf '%s' "${GITHUB_REPO_URL:-}" | tr -d '\r')"
+if [ -n "${GITHUB_REPO_URL_CLEAN}" ] && [ -f "${REPO_ROOT}/k8s/argocd/local-app.yaml" ]; then
+  _REVISION="$(git -C "${REPO_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  sed -e "s|__REPO_URL__|${GITHUB_REPO_URL_CLEAN}|g" \
+      -e "s|__REVISION__|${_REVISION}|g" \
+      "${REPO_ROOT}/k8s/argocd/local-app.yaml" | kubectl apply -f -
+  success "ArgoCD Application CR applied (repo: ${GITHUB_REPO_URL_CLEAN})."
+else
+  [ -z "${GITHUB_REPO_URL_CLEAN}" ] && \
+    info "ArgoCD installed — add GITHUB_REPO_URL=https://github.com/<you>/sre2026-final-project.git to .env to wire the Application."
+fi
+
+# ── 5c. Cloudflare Tunnel (cloudflared) ──────────────────────────────────────
+# Routes public traffic through Cloudflare (WAF + DDoS protection) — no public IP required.
+# One-time setup: https://one.dash.cloudflare.com → Zero Trust → Access → Tunnels
+#   1. Create Tunnel → copy the token → add CLOUDFLARE_TUNNEL_TOKEN=<token> to .env
+#   2. Add Public Hostname: Domain → your domain, Service → http://istio-ingressgateway.istio-system
+CLOUDFLARE_TUNNEL_TOKEN_CLEAN="$(printf '%s' "${CLOUDFLARE_TUNNEL_TOKEN:-}" | tr -d '\r')"
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN_CLEAN}" ]; then
+  info "Deploying Cloudflare Tunnel (cloudflared)..."
+  kubectl create secret generic cloudflare-tunnel-token \
+    --from-literal token="${CLOUDFLARE_TUNNEL_TOKEN_CLEAN}" \
+    -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+  [ -f "${REPO_ROOT}/k8s/cloudflare/cloudflared-deployment.yaml" ] && \
+    kubectl apply -f "${REPO_ROOT}/k8s/cloudflare/cloudflared-deployment.yaml"
+  success "Cloudflare Tunnel deployed. Traffic: Cloudflare Edge → cloudflared → Istio ingressgateway → services"
+else
+  info "CLOUDFLARE_TUNNEL_TOKEN not set — add to .env to enable public access via Cloudflare WAF."
+fi
 
 # ArgoCD port-forward — only if ArgoCD is installed
 if kubectl get svc argocd-server -n argocd >/dev/null 2>&1; then

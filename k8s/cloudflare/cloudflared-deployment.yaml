@@ -1,0 +1,64 @@
+# cloudflared-deployment.yaml — Cloudflare Tunnel connector
+#
+# Routes public traffic into the cluster through Cloudflare's network.
+# No public IP or open inbound firewall ports are needed.
+#
+# Setup (one-time, via Cloudflare dashboard):
+#   1. https://one.dash.cloudflare.com → Zero Trust → Access → Tunnels → Create Tunnel
+#   2. Copy the tunnel token → add  CLOUDFLARE_TUNNEL_TOKEN=<token>  to .env
+#   3. In the tunnel: Add Public Hostname:
+#        Domain: techbleat-bank.yourdomain.com
+#        Service: http://istio-ingressgateway.istio-system (via Istio)
+#               OR http://ingress-nginx-controller.ingress-nginx (via NGINX)
+#
+# The CLOUDFLARE_TUNNEL_TOKEN secret is created by deploy-local.sh.
+# Update the image tag to the latest from: https://hub.docker.com/r/cloudflare/cloudflared/tags
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: banking
+  labels:
+    app: cloudflared
+    app.kubernetes.io/component: cloudflared
+    app.kubernetes.io/part-of: techbleat-bank
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+        app.kubernetes.io/component: cloudflared
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2024.8.3
+          args:
+            - tunnel
+            - --no-autoupdate
+            - run
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflare-tunnel-token
+                  key: token
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      restartPolicy: Always

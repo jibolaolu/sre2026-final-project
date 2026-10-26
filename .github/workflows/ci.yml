@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 env:
-  REGISTRY: docker.io
-  IMAGE_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}
 
 jobs:
   # ── Unit / integration tests ──────────────────────────────────────────────
@@ -75,9 +75,6 @@ jobs:
       packages: write
       security-events: write   # needed for GitHub Security tab upload
       id-token: write          # needed for cosign keyless signing
-    env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-
     strategy:
       fail-fast: false
       matrix:
@@ -109,20 +106,24 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: sigstore/cosign-installer@v3
 
-      - name: Log in to Docker Hub
-        id: dockerhub-login
-        if: github.event_name != 'pull_request' && env.DOCKERHUB_USERNAME != ''
-        continue-on-error: true
+      - name: Lowercase image prefix
+        id: lower
+        run: echo "prefix=$(echo '${{ env.IMAGE_PREFIX }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Log in to GitHub Container Registry
+        id: registry-login
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          images: ${{ env.REGISTRY }}/${{ steps.lower.outputs.prefix }}/${{ matrix.service }}
           tags: |
             type=sha,prefix=,suffix=,format=short
             type=ref,event=branch
@@ -131,12 +132,11 @@ jobs:
 
       - name: Build image (and push on non-PR)
         id: build
-        if: env.DOCKERHUB_USERNAME != ''
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' && steps.dockerhub-login.outcome == 'success' }}
+          push: ${{ github.event_name != 'pull_request' && steps.registry-login.outcome == 'success' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -147,10 +147,10 @@ jobs:
             ${{ matrix.service == 'frontend' && 'VITE_KEYCLOAK_CLIENT_ID=banking-frontend' || '' }}
 
       - name: Trivy vulnerability scan
-        if: steps.dockerhub-login.outcome == 'success'
+        if: steps.registry-login.outcome == 'success'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.meta.outputs.version || 'latest' }}
+          image-ref: ${{ env.REGISTRY }}/${{ steps.lower.outputs.prefix }}/${{ matrix.service }}:${{ steps.meta.outputs.version || 'latest' }}
           format: sarif
           output: trivy-${{ matrix.service }}.sarif
           severity: CRITICAL,HIGH
@@ -166,20 +166,20 @@ jobs:
           category: trivy-${{ matrix.service }}
 
       - name: Generate SBOM (syft)
-        if: github.event_name != 'pull_request' && steps.dockerhub-login.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.registry-login.outcome == 'success'
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.meta.outputs.version || 'latest' }}
+          image: ${{ env.REGISTRY }}/${{ steps.lower.outputs.prefix }}/${{ matrix.service }}:${{ steps.meta.outputs.version || 'latest' }}
           artifact-name: sbom-${{ matrix.service }}.spdx.json
           format: spdx-json
 
       - name: Sign image with cosign (keyless via OIDC)
-        if: github.event_name != 'pull_request' && steps.dockerhub-login.outcome == 'success'
+        if: github.event_name != 'pull_request' && steps.registry-login.outcome == 'success'
         env:
           COSIGN_EXPERIMENTAL: "true"
         run: |
           cosign sign --yes \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
+            ${{ env.REGISTRY }}/${{ steps.lower.outputs.prefix }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
 
   # ── Helm chart lint ───────────────────────────────────────────────────────
   helm-lint:
