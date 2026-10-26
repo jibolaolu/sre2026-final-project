@@ -63,8 +63,12 @@ def test_empty_bearer_raises_401():
 # ── JWT content validation ───────────────────────────────────────────────────
 
 def test_wrong_audience_raises_401():
+    # Patch below _decode_token so the audience check inside it still runs.
     payload = _payload(aud="wrong-audience")
-    with patch("auth._decode_token", return_value=payload):
+    with patch("auth.jwt.get_unverified_header", return_value={"kid": "test-kid"}), \
+         patch("auth._public_key_for_kid", return_value={"kty": "RSA", "kid": "test-kid"}), \
+         patch("auth.jwt.algorithms.RSAAlgorithm.from_jwk", return_value="fake-key"), \
+         patch("auth.jwt.decode", return_value=payload):
         with pytest.raises(HTTPException) as exc_info:
             require_user(authorization="Bearer faketoken")
     assert exc_info.value.status_code == 401
@@ -94,7 +98,7 @@ def test_password_min_length_enforcement():
     from main import UserCreate
 
     with pytest.raises(ValidationError) as exc_info:
-        UserCreate(id="testuser01", full_name="Test User", email="test@bank.local",
+        UserCreate(id="testuser01", full_name="Test User", email="user@example.com",
                    password="short")  # 5 chars
     errors = exc_info.value.errors()
     assert any("password" in str(e) for e in errors)
@@ -103,6 +107,6 @@ def test_password_min_length_enforcement():
 def test_password_12_chars_accepted():
     """Passwords of exactly 12 characters must pass validation."""
     from main import UserCreate
-    user = UserCreate(id="testuser01", full_name="Test User", email="test@bank.local",
+    user = UserCreate(id="testuser01", full_name="Test User", email="user@example.com",
                       password="Correct12!ab")  # 12 chars
     assert user.password.get_secret_value() == "Correct12!ab"
