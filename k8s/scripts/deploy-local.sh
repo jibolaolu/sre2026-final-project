@@ -265,9 +265,8 @@ if [ "${SKIP_BUILD}" != "1" ]; then
   _load_image_into_minikube "${FRONTEND_IMAGE}" || die "Failed to load ${FRONTEND_IMAGE} into minikube containerd."
   success "All images built, pushed, and loaded into minikube."
 else
-  info "SKIP_BUILD=1 — loading existing images from Docker Hub into minikube..."
-  # Image name = imageRegistry + repository = DOCKERHUB_USERNAME/service-name
-  # (mirrors the Helm template: {{ .Values.global.imageRegistry }}{{ .Values.*.image.repository }})
+  info "SKIP_BUILD=1 — loading existing images from ${IMAGE_REGISTRY} into minikube..."
+  # Image name = imageRegistry + repository (mirrors Helm: {{ .Values.global.imageRegistry }}{{ .Values.*.image.repository }})
   for svc in user-service transaction-service activity-service finance-agent frontend; do
     load_into_minikube "${IMAGE_REGISTRY}${svc}:${IMAGE_TAG}"
   done
@@ -293,7 +292,7 @@ fi
 kubectl delete pvc "kafka-data-${RELEASE}-kafka-0" -n "${NAMESPACE}" --ignore-not-found 2>/dev/null || true
 
 # ── 4. Helm deploy ───────────────────────────────────────────────────────────
-info "Deploying with Helm (release: ${RELEASE})..."
+info "Deploying with Helm (release: ${RELEASE}) — this takes 60-90s with no output, please wait..."
 HELM_SET_KEYS=(
   "global.imageRegistry=${IMAGE_REGISTRY}"
   "global.imagePullPolicy=IfNotPresent"
@@ -539,7 +538,7 @@ setup_observability_portforwards() {
   # OTel Collector health check: kubectl port-forward svc/otel-collector 13133:13133 -n "${NAMESPACE}"
   info "Observability via Datadog — no local port-forwards needed."
   if [ -n "${DD_API_KEY:-}" ]; then
-    info "View logs, traces, and metrics at https://app.datadoghq.com"
+    info "View logs, traces, and metrics at https://app.${DD_SITE_CLEAN:-datadoghq.eu}"
   else
     warn "DD_API_KEY not set — Datadog Agent not running. Telemetry will be discarded by the debug exporter."
   fi
@@ -656,7 +655,7 @@ printf '    Frontend  : http://techbleat-bank.local\n'
 printf '    Keycloak  : http://keycloak.techbleat-bank.local/admin\n'
 printf '    Demo user : bankingdemo / Demo@2024\n\n'
 printf '  ── Observability ───────────────────────────────────────\n'
-printf '    Datadog    : https://app.datadoghq.com\n'
+printf '    Datadog    : https://app.%s\n' "${DD_SITE_CLEAN:-datadoghq.eu}"
 printf '                 (requires DD_API_KEY in .env)\n'
 printf '    ArgoCD     : http://localhost:8088  (admin / see below)\n\n'
 ARGOCD_PASS=$(kubectl -n argocd get secret argocd-initial-admin-secret \

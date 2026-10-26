@@ -41,6 +41,7 @@ secrets:
   openaiApiKey: "changeme"
   anthropicApiKey: "changeme"
   datadogApiKey: "changeme"
+  redisPassword: ""          # set to enable Redis AUTH; leave empty for no-auth (local only)
 
 # ── Observability ─────────────────────────────────────────────────────────────
 observability:
@@ -51,7 +52,7 @@ observability:
     tag: "0.111.0"
   datadog:
     enabled: false          # set true + provide datadogApiKey to activate
-    site: "datadoghq.com"   # EU users: datadoghq.eu
+    site: "datadoghq.eu"    # change to datadoghq.com for US
     env: "production"
     service: "techbleat-bank"
     version: ""             # set via --set at deploy time
@@ -86,6 +87,7 @@ ingress:
 # ── Keycloak ──────────────────────────────────────────────────────────────────
 keycloak:
   replicaCount: 1
+  productionMode: false   # true → "start" (requires PostgreSQL keycloakdb); false → "start-dev" (H2, for local only)
   image:
     repository: quay.io/keycloak/keycloak
     tag: "24.0.5"
@@ -125,6 +127,7 @@ userService:
     minReplicas: 2
     maxReplicas: 5
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
   probes:
     liveness:
       initialDelaySeconds: 30
@@ -156,6 +159,7 @@ transactionService:
     minReplicas: 2
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
   probes:
     liveness:
       initialDelaySeconds: 60
@@ -193,6 +197,7 @@ activityService:
     minReplicas: 2
     maxReplicas: 4
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
   probes:
     liveness:
       initialDelaySeconds: 30
@@ -224,6 +229,7 @@ financeAgent:
     minReplicas: 1
     maxReplicas: 3
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
   probes:
     liveness:
       initialDelaySeconds: 30
@@ -258,6 +264,7 @@ frontend:
     minReplicas: 2
     maxReplicas: 4
     targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
   probes:
     liveness:
       initialDelaySeconds: 10
@@ -300,6 +307,9 @@ redis:
     limits:
       cpu: 500m
       memory: 128Mi
+  persistence:
+    enabled: true
+    size: 5Gi
 
 # ── Kafka ─────────────────────────────────────────────────────────────────────
 kafka:

@@ -1,0 +1,176 @@
+# Daily Redis RDB snapshot backup and Kafka consumer-offset checkpoint.
+# Redis: triggers BGSAVE, waits for completion, copies dump.rdb to PVC.
+# Kafka: saves consumer-group offsets via kafka-consumer-groups.sh to PVC.
+# Retention: 7 daily copies kept per data source.
+# For production: replace PVC target with an S3/GCS pre-signed upload or
+# a Velero volume snapshot.
+{{- if .Values.redis.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-backup-pvc
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-redis-backup
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-backup
+spec:
+  schedule: "30 2 * * *"          # 02:30 UTC daily (30 min after postgres backup)
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "techbleat-bank.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: redis-backup
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: redis-backup-pvc
+          containers:
+            - name: redis-backup
+              image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+              imagePullPolicy: IfNotPresent
+              {{- if .Values.secrets.redisPassword }}
+              env:
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: banking-app-secrets
+                      key: redis-password
+              {{- end }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  DEST="/backup/redis_${TIMESTAMP}.rdb"
+
+                  echo "[redis-backup] Triggering BGSAVE at ${TIMESTAMP}"
+                  {{- if .Values.secrets.redisPassword }}
+                  redis-cli -h redis -a "${REDIS_PASSWORD}" BGSAVE
+                  {{- else }}
+                  redis-cli -h redis BGSAVE
+                  {{- end }}
+
+                  # Wait for BGSAVE to complete (max 120 s)
+                  for i in $(seq 1 24); do
+                    {{- if .Values.secrets.redisPassword }}
+                    STATUS=$(redis-cli -h redis -a "${REDIS_PASSWORD}" LASTSAVE)
+                    {{- else }}
+                    STATUS=$(redis-cli -h redis LASTSAVE)
+                    {{- end }}
+                    echo "[redis-backup] LASTSAVE epoch: ${STATUS}"
+                    sleep 5
+                  done
+
+                  # Copy dump.rdb from the Redis data volume via the redis-cli DEBUG RELOAD trick
+                  {{- if .Values.secrets.redisPassword }}
+                  redis-cli -h redis -a "${REDIS_PASSWORD}" --rdb "${DEST}"
+                  {{- else }}
+                  redis-cli -h redis --rdb "${DEST}"
+                  {{- end }}
+                  echo "[redis-backup] Snapshot saved: ${DEST} ($(du -sh ${DEST} | cut -f1))"
+
+                  # Keep last 7 snapshots
+                  cd /backup
+                  ls -t redis_*.rdb | tail -n +8 | xargs -r rm --
+                  echo "[redis-backup] Retention done. Current snapshots:"
+                  ls -lh redis_*.rdb 2>/dev/null || true
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+{{- end }}
+---
+# Kafka consumer-group offset checkpoint (runs daily; useful for disaster recovery
+# to know which offsets each consumer group had reached before data loss).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-kafka-offset-backup
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-backup
+spec:
+  schedule: "45 2 * * *"          # 02:45 UTC daily
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "techbleat-bank.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: kafka-backup
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: {{ if .Values.redis.persistence.enabled }}redis-backup-pvc{{ else }}postgres-backup-pvc{{ end }}
+          containers:
+            - name: kafka-offset-backup
+              image: "{{ .Values.kafka.image.repository }}:{{ .Values.kafka.image.tag }}"
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+                  DEST="/backup/kafka_offsets_${TIMESTAMP}.txt"
+
+                  echo "[kafka-backup] Snapshotting consumer group offsets at ${TIMESTAMP}"
+                  kafka-consumer-groups.sh \
+                    --bootstrap-server kafka:29092 \
+                    --describe \
+                    --all-groups > "${DEST}" 2>&1
+
+                  echo "[kafka-backup] Offset snapshot saved: ${DEST}"
+
+                  # Keep last 7
+                  cd /backup
+                  ls -t kafka_offsets_*.txt | tail -n +8 | xargs -r rm --
+                  echo "[kafka-backup] Retention done."
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 256Mi
+                limits:
+                  cpu: 200m
+                  memory: 512Mi

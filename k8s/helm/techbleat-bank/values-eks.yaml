@@ -92,6 +92,7 @@ frontend:
 
 keycloak:
   replicaCount: 2
+  productionMode: true   # use "start" with PostgreSQL (keycloakdb must exist)
   resources:
     requests:
       cpu: "1"

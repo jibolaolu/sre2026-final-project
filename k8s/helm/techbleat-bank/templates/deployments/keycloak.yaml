@@ -31,7 +31,11 @@ spec:
         - name: keycloak
           image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          {{- if .Values.keycloak.productionMode }}
+          args: ["start", "--import-realm"]
+          {{- else }}
           args: ["start-dev", "--import-realm"]
+          {{- end }}
           ports:
             - name: http
               containerPort: 8080
@@ -58,6 +62,21 @@ spec:
               value: "edge"
             - name: KC_HTTP_ENABLED
               value: "true"
+            {{- if .Values.keycloak.productionMode }}
+            # Production mode: use PostgreSQL instead of H2 embedded DB.
+            # Requires a "keycloakdb" database in the PostgreSQL StatefulSet.
+            - name: KC_DB
+              value: "postgres"
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://postgres:5432/keycloakdb"
+            - name: KC_DB_USERNAME
+              value: {{ .Values.postgres.env.dbUser | quote }}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: postgres-password
+            {{- end }}
             - name: JAVA_OPTS_APPEND
               value: "-Xmx512m -Xms256m"
           volumeMounts:

@@ -1,0 +1,1330 @@
+<title>Techbleat Bank · Project Report</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;1,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+/* ── Design tokens ─────────────────────────────────────────── */
+:root {
+  --bg:        #ffffff;
+  --bg2:       #f8fafc;
+  --bg3:       #f1f5f9;
+  --bdr:       #e2e8f0;
+  --txt:       #0f172a;
+  --txt2:      #334155;
+  --txt3:      #64748b;
+  --accent:    #1d4ed8;
+  --accent-lt: #dbeafe;
+  --accent-dk: #1e3a8a;
+  --nav:       #0f2554;
+  --green:     #15803d;
+  --green-lt:  #dcfce7;
+  --amber:     #b45309;
+  --amber-lt:  #fef3c7;
+  --red:       #b91c1c;
+  --red-lt:    #fee2e2;
+  --purple:    #6d28d9;
+  --purple-lt: #ede9fe;
+  --teal:      #0f766e;
+  --teal-lt:   #ccfbf1;
+  --ff-d: 'Playfair Display', Georgia, serif;
+  --ff-b: 'Inter', system-ui, sans-serif;
+  --ff-m: 'JetBrains Mono', 'Courier New', monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0c1220; --bg2:#111827; --bg3:#1f2937; --bdr:#374151;
+    --txt:#f1f5f9; --txt2:#cbd5e1; --txt3:#6b7280;
+    --accent:#3b82f6; --accent-lt:rgba(59,130,246,.14); --accent-dk:#93c5fd;
+    --nav:#1e3a5f;
+    --green:#4ade80; --green-lt:rgba(74,222,128,.1);
+    --amber:#fbbf24; --amber-lt:rgba(251,191,36,.1);
+    --red:#f87171;   --red-lt:rgba(248,113,113,.1);
+    --purple:#a78bfa; --purple-lt:rgba(167,139,250,.1);
+    --teal:#2dd4bf;  --teal-lt:rgba(45,212,191,.1);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#0c1220; --bg2:#111827; --bg3:#1f2937; --bdr:#374151;
+  --txt:#f1f5f9; --txt2:#cbd5e1; --txt3:#6b7280;
+  --accent:#3b82f6; --accent-lt:rgba(59,130,246,.14); --accent-dk:#93c5fd;
+  --nav:#1e3a5f;
+  --green:#4ade80; --green-lt:rgba(74,222,128,.1);
+  --amber:#fbbf24; --amber-lt:rgba(251,191,36,.1);
+  --red:#f87171;   --red-lt:rgba(248,113,113,.1);
+  --purple:#a78bfa; --purple-lt:rgba(167,139,250,.1);
+  --teal:#2dd4bf;  --teal-lt:rgba(45,212,191,.1);
+  color-scheme: dark;
+}
+
+/* ── Reset + base ──────────────────────────────────────────── */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: var(--ff-b);
+  background: var(--bg);
+  color: var(--txt);
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left,0px));
+  padding-right: max(16px, env(safe-area-inset-right,0px));
+}
+a { color: var(--accent); }
+
+/* ── Page wrapper ──────────────────────────────────────────── */
+.doc { max-width: 900px; margin: 0 auto; padding-block: 40px 64px; }
+
+/* ── Cover ─────────────────────────────────────────────────── */
+.cover {
+  background: var(--nav);
+  border-radius: 14px;
+  padding: 48px 44px 44px;
+  margin-bottom: 48px;
+  position: relative;
+  overflow: hidden;
+}
+.cover::before {
+  content:''; position:absolute; top:-50px; right:-70px;
+  width:280px; height:280px; border-radius:50%;
+  background:rgba(255,255,255,.05); pointer-events:none;
+}
+.cover::after {
+  content:''; position:absolute; bottom:-60px; left:-40px;
+  width:180px; height:180px; border-radius:50%;
+  background:rgba(255,255,255,.04); pointer-events:none;
+}
+.cover-eyebrow {
+  font-family: var(--ff-m);
+  font-size:11px; font-weight:500; letter-spacing:1.5px;
+  text-transform:uppercase; color:rgba(255,255,255,.55);
+  margin-bottom:12px;
+}
+.cover h1 {
+  font-family: var(--ff-d);
+  font-size: clamp(26px,5vw,40px);
+  font-weight:800; color:#fff; line-height:1.1;
+  text-wrap:balance; margin-bottom:8px;
+}
+.cover-sub { font-size:14px; color:rgba(255,255,255,.65); margin-bottom:36px; }
+.cover-meta { display:flex; flex-wrap:wrap; gap:24px 40px; }
+.cover-meta-item { display:flex; flex-direction:column; gap:3px; }
+.cover-meta-item span { font-size:10px; text-transform:uppercase; letter-spacing:1px; color:rgba(255,255,255,.45); font-weight:600; }
+.cover-meta-item strong { font-size:13px; color:rgba(255,255,255,.88); font-weight:600; }
+.criteria-ok { color:#4ade80; font-weight:700; }
+
+/* ── PDF hint ──────────────────────────────────────────────── */
+.pdf-hint {
+  background: var(--accent-lt);
+  border: 1px solid var(--accent);
+  border-radius:8px; padding:10px 16px;
+  font-size:12px; color:var(--accent);
+  margin-bottom:32px;
+  display:flex; align-items:center; gap:10px;
+}
+
+/* ── TOC ───────────────────────────────────────────────────── */
+.toc {
+  background: var(--bg2);
+  border:1px solid var(--bdr);
+  border-left:4px solid var(--accent);
+  border-radius:8px; padding:20px 24px;
+  margin-bottom:56px;
+}
+.toc-title {
+  font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:1px; color:var(--txt3); margin-bottom:14px;
+}
+.toc-list { list-style:none; display:flex; flex-direction:column; gap:8px; }
+.toc-list a {
+  color:var(--accent); text-decoration:none;
+  font-size:13px; font-weight:500;
+  display:flex; align-items:baseline; gap:8px;
+}
+.toc-list a:hover { text-decoration:underline; }
+.toc-num { font-family:var(--ff-m); font-size:10px; color:var(--txt3); min-width:22px; }
+
+/* ── Section ───────────────────────────────────────────────── */
+.section { margin-bottom:64px; }
+.section-hd {
+  display:flex; align-items:flex-start; gap:14px;
+  margin-bottom:28px; padding-bottom:18px;
+  border-bottom:1px solid var(--bdr);
+}
+.sec-num {
+  font-family:var(--ff-m); font-size:11px; font-weight:500;
+  color:var(--accent); background:var(--accent-lt);
+  padding:4px 9px; border-radius:4px;
+  flex-shrink:0; margin-top:5px;
+}
+.sec-title {
+  font-family:var(--ff-d);
+  font-size:clamp(20px,3vw,28px); font-weight:700;
+  color:var(--txt); text-wrap:balance;
+}
+.sec-desc { font-size:13px; color:var(--txt3); margin-top:3px; }
+
+/* ── Sub-section ───────────────────────────────────────────── */
+.sub { margin-bottom:32px; }
+.sub-title {
+  font-size:15px; font-weight:700; color:var(--txt);
+  margin-bottom:14px;
+  display:flex; align-items:center; gap:9px;
+}
+.sub-title::before {
+  content:''; display:block; width:3px; height:18px;
+  background:var(--accent); border-radius:2px; flex-shrink:0;
+}
+
+/* ── Prose ─────────────────────────────────────────────────── */
+.prose { font-size:14px; color:var(--txt2); line-height:1.75; max-width:72ch; margin-bottom:20px; }
+
+/* ── Feature grid (Section 1) ──────────────────────────────── */
+.feat-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+  gap:16px;
+}
+.feat-card {
+  background:var(--bg2); border:1px solid var(--bdr);
+  border-radius:10px; padding:18px; display:flex; flex-direction:column; gap:10px;
+}
+.feat-top { display:flex; align-items:center; gap:11px; }
+.feat-icon {
+  width:38px; height:38px; border-radius:9px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:18px; flex-shrink:0;
+}
+.feat-name { font-size:13px; font-weight:700; color:var(--txt); }
+.feat-tech { font-family:var(--ff-m); font-size:10px; color:var(--txt3); }
+.feat-desc { font-size:12px; color:var(--txt2); line-height:1.6; }
+.feat-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:2px; }
+.tag {
+  font-size:9.5px; font-weight:600; padding:2px 7px;
+  border-radius:4px; background:var(--bg3);
+  color:var(--txt2); font-family:var(--ff-m);
+}
+
+/* ── Infra components (Section 2) ──────────────────────────── */
+.infra-list { display:flex; flex-direction:column; gap:14px; }
+.ic {
+  border:1px solid var(--bdr); border-radius:10px; overflow:hidden;
+}
+.ic-hd {
+  display:flex; align-items:center; gap:11px;
+  padding:13px 18px; background:var(--bg2);
+  border-bottom:1px solid var(--bdr);
+}
+.ic-dot { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+.ic-name { font-size:14px; font-weight:700; color:var(--txt); }
+.ic-kind {
+  font-family:var(--ff-m); font-size:10px; color:var(--txt3);
+  margin-left:auto; flex-shrink:0;
+}
+.ic-body {
+  padding:14px 18px;
+  display:grid; grid-template-columns:1fr 1fr; gap:12px;
+}
+@media(max-width:580px){ .ic-body{ grid-template-columns:1fr; } }
+.ic-full { grid-column:1/-1; }
+.ic-field { display:flex; flex-direction:column; gap:3px; }
+.ic-label {
+  font-size:10px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.5px; color:var(--txt3);
+}
+.ic-val { font-size:12px; color:var(--txt2); line-height:1.55; }
+.ic-val code {
+  font-family:var(--ff-m); font-size:11px;
+  background:var(--bg3); border:1px solid var(--bdr);
+  padding:1px 5px; border-radius:3px; color:var(--txt);
+}
+
+/* ── Flow Diagram (Section 3) ──────────────────────────────── */
+.diag-wrap {
+  border:1px solid var(--bdr); border-radius:12px; overflow:hidden;
+  margin-bottom:20px;
+}
+.diag-hd {
+  background:var(--bg2); border-bottom:1px solid var(--bdr);
+  padding:12px 18px;
+  font-size:11px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.7px; color:var(--txt3);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.diag-scroll {
+  overflow-x:auto; background:var(--bg);
+  padding:0;
+}
+.flow-svg {
+  display:block; min-width:820px; width:100%; max-width:100%;
+}
+
+/* SVG lane backgrounds (theme aware via CSS) */
+.svg-l1 { fill:#eff6ff; }
+.svg-l2 { fill:#faf5ff; }
+.svg-l3 { fill:#fffbeb; }
+.svg-l4 { fill:#f0fdf4; }
+.svg-l5 { fill:#f8fafc; }
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .svg-l1 { fill:rgba(30,64,175,.12); }
+  :root:not([data-theme="light"]) .svg-l2 { fill:rgba(109,40,217,.12); }
+  :root:not([data-theme="light"]) .svg-l3 { fill:rgba(180,83,9,.1); }
+  :root:not([data-theme="light"]) .svg-l4 { fill:rgba(21,128,61,.1); }
+  :root:not([data-theme="light"]) .svg-l5 { fill:rgba(71,85,105,.1); }
+}
+:root[data-theme="dark"] .svg-l1 { fill:rgba(30,64,175,.12); }
+:root[data-theme="dark"] .svg-l2 { fill:rgba(109,40,217,.12); }
+:root[data-theme="dark"] .svg-l3 { fill:rgba(180,83,9,.1); }
+:root[data-theme="dark"] .svg-l4 { fill:rgba(21,128,61,.1); }
+:root[data-theme="dark"] .svg-l5 { fill:rgba(71,85,105,.1); }
+
+/* Legend */
+.diag-legend {
+  display:flex; flex-wrap:wrap; gap:12px 24px;
+  padding:14px 18px; border-top:1px solid var(--bdr);
+  background:var(--bg2);
+}
+.dl-item { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--txt3); }
+.dl-line { width:28px; height:2px; flex-shrink:0; }
+
+/* ── Improvements (Section 4) ─────────────────────────────── */
+.impr-list { display:flex; flex-direction:column; }
+.impr-row {
+  display:grid; grid-template-columns:100px 1fr 90px;
+  gap:16px; align-items:start;
+  padding:16px 0; border-bottom:1px solid var(--bdr);
+}
+.impr-row:last-child { border-bottom:none; }
+@media(max-width:580px){
+  .impr-row { grid-template-columns:1fr; gap:8px; }
+  .impr-effort { display:none; }
+}
+.pbadge {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:10px; font-weight:700; padding:3px 9px;
+  border-radius:20px; text-transform:uppercase; letter-spacing:.4px;
+}
+.p-critical { background:var(--red-lt);    color:var(--red);    }
+.p-high     { background:var(--amber-lt);  color:var(--amber);  }
+.p-medium   { background:var(--purple-lt); color:var(--purple); }
+.p-low      { background:var(--green-lt);  color:var(--green);  }
+.impr-title { font-size:13px; font-weight:700; color:var(--txt); margin-bottom:5px; }
+.impr-desc  { font-size:12px; color:var(--txt2); line-height:1.6; }
+.impr-effort { font-size:11px; font-family:var(--ff-m); color:var(--txt3); text-align:right; padding-top:2px; }
+
+/* ── Stack table ───────────────────────────────────────────── */
+.stack-wrap { overflow-x:auto; }
+table.stack {
+  width:100%; border-collapse:collapse; font-size:13px; min-width:520px;
+}
+table.stack th {
+  text-align:left; font-size:10px; font-weight:700;
+  text-transform:uppercase; letter-spacing:.6px; color:var(--txt3);
+  padding:9px 14px; background:var(--bg2); border:1px solid var(--bdr);
+}
+table.stack td {
+  padding:9px 14px; border:1px solid var(--bdr);
+  color:var(--txt2); vertical-align:top;
+}
+table.stack td:first-child { font-weight:600; color:var(--txt); }
+table.stack td code {
+  font-family:var(--ff-m); font-size:11px;
+  background:var(--bg3); padding:1px 5px; border-radius:3px;
+}
+table.stack tr:nth-child(even) td { background:var(--bg2); }
+
+/* ── Footer ────────────────────────────────────────────────── */
+.doc-footer {
+  margin-top:56px; padding-top:24px;
+  border-top:1px solid var(--bdr);
+  display:flex; justify-content:space-between; align-items:center;
+  flex-wrap:wrap; gap:8px;
+  font-size:11px; color:var(--txt3);
+}
+
+/* ── Print ─────────────────────────────────────────────────── */
+@media print {
+  .pdf-hint { display:none; }
+  .section { page-break-inside:avoid; }
+  .cover { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .ic { page-break-inside:avoid; }
+}
+</style>
+
+<div class="doc">
+
+<!-- ═══════════ COVER ═══════════ -->
+<div class="cover" id="top">
+  <div class="cover-eyebrow">Technical Architecture Report · SRE 2026</div>
+  <h1>Techbleat Global Bank</h1>
+  <div class="cover-sub">Banking Platform · Kubernetes SRE · AI-Powered Finance Assistant</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><span>Date</span><strong>26 October 2026</strong></div>
+    <div class="cover-meta-item"><span>Version</span><strong>1.0</strong></div>
+    <div class="cover-meta-item"><span>Runtime</span><strong>minikube (local) · AWS EKS (prod)</strong></div>
+    <div class="cover-meta-item"><span>SRE Criteria</span><strong><span class="criteria-ok">✓</span> A1–A12 All Resolved</strong></div>
+    <div class="cover-meta-item"><span>Author</span><strong>Techbleat Engineering</strong></div>
+  </div>
+</div>
+
+<div class="pdf-hint">
+  📄 To export as PDF — open this page in Chrome and press <strong>Ctrl + P</strong> (Win) or <strong>⌘ + P</strong> (Mac), then choose <em>Save as PDF</em>.
+</div>
+
+<!-- ═══════════ TOC ═══════════ -->
+<nav class="toc">
+  <div class="toc-title">Contents</div>
+  <ol class="toc-list">
+    <li><a href="#sec1"><span class="toc-num">01</span>Application Functionalities</a></li>
+    <li><a href="#sec2"><span class="toc-num">02</span>Infrastructure Components</a></li>
+    <li><a href="#sec3"><span class="toc-num">03</span>Data &amp; Event Flow Diagram</a></li>
+    <li><a href="#sec4"><span class="toc-num">04</span>Areas of Improvement</a></li>
+    <li><a href="#sec5"><span class="toc-num">05</span>Technology Stack Reference</a></li>
+  </ol>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 1 — APPLICATION FUNCTIONALITIES
+═══════════════════════════════════════════════════════════════ -->
+<section class="section" id="sec1">
+  <div class="section-hd">
+    <div class="sec-num">01</div>
+    <div>
+      <div class="sec-title">Application Functionalities</div>
+      <div class="sec-desc">Core services, user-facing features, and AI capabilities</div>
+    </div>
+  </div>
+
+  <p class="prose">Techbleat Global Bank is a cloud-native banking platform comprising six independent services coordinated through an Istio service mesh. Users authenticate via Keycloak SSO, perform financial operations, and interact with an AI finance assistant backed by large language models.</p>
+
+  <div class="sub">
+    <div class="sub-title">Core Banking Services</div>
+    <div class="feat-grid">
+
+      <div class="feat-card">
+        <div class="feat-top">
+          <div class="feat-icon" style="background:#dbeafe">👤</div>
+          <div><div class="feat-name">User Service</div><div class="feat-tech">Python 3.12 · FastAPI</div></div>
+        </div>
+        <div class="feat-desc">Manages customer accounts, profiles, KYC data, and JWT-protected CRUD endpoints. Validates tokens via PyJWT with RS256 JWKS from Keycloak on every request.</div>
+        <div class="feat-tags">
+          <span class="tag">User CRUD</span><span class="tag">JWT RS256</span><span class="tag">JWKS Guard</span><span class="tag">PostgreSQL</span><span class="tag">Redis Cache</span>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-top">
+          <div class="feat-icon" style="background:#d1fae5">💸</div>
+          <div><div class="feat-name">Transaction Service</div><div class="feat-tech">Java 17 · Spring Boot 3</div></div>
+        </div>
+        <div class="feat-desc">Processes fund transfers, debit/credit operations, and transaction history queries. Enforces cross-account access denial by extracting userId from the JWT and calling assertOwnership() on every read.</div>
+        <div class="feat-tags">
+          <span class="tag">Transfers</span><span class="tag">CQRS</span><span class="tag">JWT Ownership</span><span class="tag">Kafka Produce</span><span class="tag">JPA/PG</span>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-top">
+          <div class="feat-icon" style="background:#fef3c7">📋</div>
+          <div><div class="feat-name">Activity Service</div><div class="feat-tech">Python 3.12 · FastAPI</div></div>
+        </div>
+        <div class="feat-desc">Consumes domain events from Kafka to build an immutable audit trail of all account activity. Also exposes a JWT-guarded REST API for querying activity history with ownership checks.</div>
+        <div class="feat-tags">
+          <span class="tag">Audit Trail</span><span class="tag">Kafka Consumer</span><span class="tag">Event Sourcing</span><span class="tag">PostgreSQL</span>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-top">
+          <div class="feat-icon" style="background:#dcfce7">🤖</div>
+          <div><div class="feat-name">Finance Agent</div><div class="feat-tech">Python 3.12 · LLM Orchestration</div></div>
+        </div>
+        <div class="feat-desc">AI-powered finance assistant that routes queries to Anthropic Claude (claude-opus-5-5) or OpenAI GPT-4o. Responses stream via Server-Sent Events. Secured by a dedicated RBAC role (banking-ai-agent) enforced at the API level via require_ai_agent_user().</div>
+        <div class="feat-tags">
+          <span class="tag">SSE Streaming</span><span class="tag">Claude Opus 5.5</span><span class="tag">GPT-4o</span><span class="tag">Role Guard</span><span class="tag">Tool Use</span>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-top">
+          <div class="feat-icon" style="background:#ede9fe">🖥</div>
+          <div><div class="feat-name">Frontend</div><div class="feat-tech">React 18 · Vite · Nginx</div></div>
+        </div>
+        <div class="feat-desc">Single-page application served by Nginx. Integrates Keycloak JS adapter for OIDC/PKCE silent SSO. All API calls include the Bearer JWT. The chat interface renders streaming AI responses incrementally.</div>
+        <div class="feat-tags">
+          <span class="tag">React SPA</span><span class="tag">Keycloak JS</span><span class="tag">PKCE</span><span class="tag">SSE Client</span><span class="tag">Vite Build</span>
+        </div>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-top">
+          <div class="feat-icon" style="background:#fce7f3">🔐</div>
+          <div><div class="feat-name">Authentication</div><div class="feat-tech">Keycloak 24 · OIDC / OAuth 2.0</div></div>
+        </div>
+        <div class="feat-desc">Centralised identity provider with the banking realm. Issues RS256 JWT access tokens. Supports PKCE for the public SPA client, enforces RBAC roles (user, admin, banking-ai-agent), and provides a JWKS endpoint for each service to validate tokens independently.</div>
+        <div class="feat-tags">
+          <span class="tag">OIDC PKCE</span><span class="tag">JWT RS256</span><span class="tag">RBAC Roles</span><span class="tag">JWKS Endpoint</span><span class="tag">Realm: banking</span>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /sub -->
+
+  <div class="sub">
+    <div class="sub-title">Security &amp; Access Control</div>
+    <p class="prose">Every service enforces JWT validation independently at the API boundary. The transaction service additionally calls assertOwnership() to confirm the requesting user owns the requested resource — preventing cross-account access even with a valid token. The Istio AuthorizationPolicy layer adds a second enforcement plane: inter-service traffic is blocked unless it carries a valid mTLS peer identity matching the declared source principal.</p>
+  </div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 2 — INFRASTRUCTURE COMPONENTS
+═══════════════════════════════════════════════════════════════ -->
+<section class="section" id="sec2">
+  <div class="section-hd">
+    <div class="sec-num">02</div>
+    <div>
+      <div class="sec-title">Infrastructure Components</div>
+      <div class="sec-desc">Purpose, configuration, and dependencies for each platform component</div>
+    </div>
+  </div>
+
+  <div class="infra-list">
+
+    <!-- Kubernetes -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#2563eb"></div>
+        <span class="ic-name">Kubernetes Cluster</span>
+        <span class="ic-kind">minikube (local) · AWS EKS (production)</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Container orchestration layer. Manages pod scheduling, rolling deployments, health probes, and horizontal scaling across all banking services.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Namespaces</div>
+          <div class="ic-val"><code>banking</code> (all app services) · <code>datadog</code> · <code>istio-system</code> · <code>argocd</code></div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Deployment Method</div>
+          <div class="ic-val">Helm chart at <code>k8s/helm/techbleat-bank/</code>. Values split across <code>values.yaml</code> (base), <code>values-local.yaml</code> (minikube), <code>values-eks.yaml</code> (EKS). Secrets passed via <code>--set</code> at deploy time, never committed.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">NetworkPolicy</div>
+          <div class="ic-val">Default-deny across all namespaces. Per-service allow rules open only the required port/protocol pairs. No pod can reach another unless explicitly permitted.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Istio -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#7c3aed"></div>
+        <span class="ic-name">Istio Service Mesh</span>
+        <span class="ic-kind">istio-system namespace · Envoy sidecars</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Mutual TLS enforcement between every pod pair in the banking namespace. Provides L7 traffic management, circuit breaking, and policy enforcement without code changes to services.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">mTLS Mode</div>
+          <div class="ic-val"><code>STRICT</code> PeerAuthentication applied mesh-wide. All traffic between Envoy sidecars is encrypted and mutually authenticated. Plain-text connections are rejected.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Ingress</div>
+          <div class="ic-val">Istio IngressGateway handles L7 routing via VirtualService and Gateway CRDs. Traffic enters from cloudflared through NodePort <code>80/443</code> and is routed to the appropriate backend service.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Authorization</div>
+          <div class="ic-val">AuthorizationPolicy CRDs restrict traffic to only declared source principals. Services cannot communicate unless the policy explicitly permits it by ServiceAccount identity.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cloudflare -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#d97706"></div>
+        <span class="ic-name">Cloudflare Zero Trust (Tunnel)</span>
+        <span class="ic-kind">banking namespace · 2 replicas</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Exposes the cluster to the internet without opening any inbound firewall ports. The cluster has no public IP. All traffic from the internet enters via Cloudflare's edge and is forwarded through an outbound-only QUIC tunnel.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Edge Features</div>
+          <div class="ic-val">WAF (Web Application Firewall), DDoS protection, TLS 1.3 termination, Zero Trust access policies, and rate limiting at the Cloudflare edge — before traffic reaches the cluster.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Token Persistence</div>
+          <div class="ic-val">Tunnel token stored in K8s Secret <code>cloudflare-tunnel-token</code> in the banking namespace. Survives pod restarts and redeployments. The tunnel itself persists in Cloudflare's dashboard independently of the running pods.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Replicas</div>
+          <div class="ic-val">2 replicas provide high-availability tunnel connections. Each replica maintains an independent persistent connection to Cloudflare, eliminating a single point of failure at the ingress layer.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Keycloak -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#db2777"></div>
+        <span class="ic-name">Keycloak Identity Provider</span>
+        <span class="ic-kind">banking namespace · StatefulSet</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Centralised authentication and authorisation. Issues RS256-signed JWT access tokens. Services validate tokens offline via JWKS without round-tripping to Keycloak on every request.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Configuration</div>
+          <div class="ic-val">Realm <code>banking</code> imported at startup from a ConfigMap. Clients: <code>banking-frontend</code> (public, PKCE) and <code>banking-service-client</code> (confidential). Roles: <code>user</code>, <code>admin</code>, <code>banking-ai-agent</code>.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Provisioning</div>
+          <div class="ic-val">A Helm post-install Job (<code>keycloak-provisioner</code>) creates realms, clients, and default users on first deploy. Realm JSON is stored in a ConfigMap and mounted at <code>/opt/keycloak/data/import</code>.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Port</div>
+          <div class="ic-val">Exposed on port <code>8080</code> (internal). Accessed at <code>keycloak.techbleat-bank.local</code> via Istio VirtualService. The JWKS endpoint at <code>/realms/banking/protocol/openid-connect/certs</code> is called by each service on startup.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PostgreSQL -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#0d9488"></div>
+        <span class="ic-name">PostgreSQL 15</span>
+        <span class="ic-kind">banking namespace · StatefulSet · PersistentVolume</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Primary relational store for all user profiles, transaction records, and activity logs. Each service connects with its own dedicated database user and schema.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Initialisation</div>
+          <div class="ic-val">SQL init scripts delivered via ConfigMap and mounted at <code>/docker-entrypoint-initdb.d</code>. Creates per-service schemas and grants on first boot.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Backup Strategy</div>
+          <div class="ic-val">Daily <code>pg_dump</code> CronJob with 7-day retention. Restoration tested via <code>k8s/scripts/restore-postgres.sh</code>. Documented RPO ≤24h, RTO ≤30min in <code>k8s/docs/rpo-rto.md</code>.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Security</div>
+          <div class="ic-val">Password stored in K8s Secret, injected via <code>secretKeyRef</code> — never hardcoded. NetworkPolicy restricts connections to only the three application services. TLS available via Istio sidecar mTLS between client and pod.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Redis -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#d97706"></div>
+        <span class="ic-name">Redis 7</span>
+        <span class="ic-kind">banking namespace · StatefulSet</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">In-memory data store used for session caching, distributed rate limiting, and short-lived token blacklists. user-service reads cached user profiles to reduce PostgreSQL load.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Use Cases</div>
+          <div class="ic-val">Session cache · API rate limit counters · JWT revocation list · Finance-agent conversation context cache (configurable TTL)</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Access</div>
+          <div class="ic-val">Password-protected. Connection string injected from K8s Secret. NetworkPolicy restricts to only user-service and finance-agent pods. Exposed on port <code>6379</code> inside the cluster only.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Note</div>
+          <div class="ic-val">Datadog autodiscovery picks up Redis but the auth password is not currently injected into the Datadog check configuration — resulting in a recurring authentication error in the agent logs (tracked for fix).</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kafka -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#b45309"></div>
+        <span class="ic-name">Apache Kafka</span>
+        <span class="ic-kind">banking namespace · StatefulSet · 3 topics</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Asynchronous event bus decoupling the transaction service (producer) from the activity service (consumer). Ensures the audit log is populated reliably even if the activity service restarts.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Topics</div>
+          <div class="ic-val"><code>txn.events</code> — transaction lifecycle events<br><code>user.events</code> — account create/update events<br><code>notifications</code> — email/push trigger events (future)</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Producer</div>
+          <div class="ic-val">transaction-service publishes a <code>TransactionCreated</code> or <code>TransactionCompleted</code> event on every successful fund transfer. Idempotent producer configuration prevents duplicate messages on retry.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Consumer</div>
+          <div class="ic-val">activity-service consumes <code>txn.events</code> in the <code>activity-consumer-group</code>. Offset commits occur only after the activity record is durably written to PostgreSQL — no data loss on consumer restart.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GitHub Actions -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#475569"></div>
+        <span class="ic-name">GitHub Actions CI/CD</span>
+        <span class="ic-kind">.github/workflows/ · GHCR images</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">CI Pipeline</div>
+          <div class="ic-val">On every push: Python unit tests (pytest) and Java unit tests (Maven) run in parallel, then Docker images are built for all 5 services and pushed to GHCR (<code>ghcr.io/jibolaolu/</code>). Build is blocked if any test job fails.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Image Security</div>
+          <div class="ic-val">Every pushed image is scanned by Trivy (CRITICAL + HIGH). Findings are uploaded to GitHub Security tab as SARIF. Cosign keyless signing via Sigstore OIDC proves each image was built by the CI pipeline and not tampered with post-build.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">SBOM</div>
+          <div class="ic-val">Syft generates an SPDX JSON Software Bill of Materials for each image and attaches it as a workflow artefact. Enables rapid dependency auditing in the event of a supply-chain vulnerability disclosure.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Secret Scan</div>
+          <div class="ic-val">Gitleaks runs on every commit (full history scan) via <code>gitleaks-action@v2</code>. Configured by <code>.gitleaks.toml</code>. Blocks merge if any committed secret pattern is detected. Pre-commit hook in <code>.pre-commit-config.yaml</code> catches leaks before push.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ArgoCD -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#4338ca"></div>
+        <span class="ic-name">ArgoCD GitOps</span>
+        <span class="ic-kind">argocd namespace · Port 8088</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Continuously reconciles cluster state with the Helm chart in the GitHub repository. Any drift (manual kubectl edit, failed rollout) is automatically detected and corrected. Provides a visual diff and rollback UI.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Configuration</div>
+          <div class="ic-val">Application CR watches <code>k8s/helm/techbleat-bank</code> in the GitHub repo. Auto-sync is enabled with self-heal. Helm values are sourced from <code>values.yaml</code> + <code>values-local.yaml</code>.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Access</div>
+          <div class="ic-val">UI accessible at <code>http://localhost:8088</code> via port-forward. Initial admin password generated at install time and stored in the <code>argocd-initial-admin-secret</code> Secret in the argocd namespace.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Rollback</div>
+          <div class="ic-val">Previous deployment manifests are retained as Git commits. A rollback triggers a sync to an earlier commit SHA. Smoke test checklist documented in <code>k8s/docs/rpo-rto.md</code>.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Datadog -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#0891b2"></div>
+        <span class="ic-name">Datadog Agent &amp; Cluster Agent</span>
+        <span class="ic-kind">datadog namespace · DaemonSet · app.datadoghq.eu</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Full-stack observability: infrastructure metrics, APM traces, log aggregation, and Kubernetes orchestration monitoring. 3/3 node agents Running, 1/1 cluster agent Running.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Log Collection</div>
+          <div class="ic-val"><code>containerCollectAll: true</code> tails all pod log files from <code>/var/log/pods/</code>. Logs are enriched with pod name, namespace, and service tags before forwarding to the EU region endpoint.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">minikube Fix</div>
+          <div class="ic-val">The node agent requires <code>DD_HOSTNAME</code> set from <code>spec.nodeName</code> fieldRef because minikube does not expose a resolvable FQDN. <code>kubelet.tlsVerify: false</code> is set for the self-signed kubelet cert. <code>liveProcessCollection</code> disabled (requires SYS_PTRACE).</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">APM / Metrics</div>
+          <div class="ic-val">OpenTelemetry traces forwarded to Datadog via OTLP exporter. SLO burn-rate alert rules defined in the Helm chart. Kubernetes orchestrator data collected by the cluster agent.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OTEL -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#0891b2"></div>
+        <span class="ic-name">OpenTelemetry Collector</span>
+        <span class="ic-kind">banking namespace · Deployment</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Receives distributed traces from Istio Envoy sidecars and application-level instrumentation via OTLP. Exports to Datadog APM and to a local Jaeger instance for development inspection.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">Exporters</div>
+          <div class="ic-val">OTLP → Datadog APM (EU endpoint) · Jaeger gRPC (local, for development) · Prometheus metrics endpoint scraped by Datadog agent</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- cert-manager -->
+    <div class="ic">
+      <div class="ic-hd">
+        <div class="ic-dot" style="background:#1d4ed8"></div>
+        <span class="ic-name">cert-manager</span>
+        <span class="ic-kind">Cluster-wide · ClusterIssuer CRD</span>
+      </div>
+      <div class="ic-body">
+        <div class="ic-field">
+          <div class="ic-label">Purpose</div>
+          <div class="ic-val">Automates TLS certificate lifecycle for all Ingress resources. Issues Let's Encrypt certificates in production (EKS). Uses a self-signed ClusterIssuer for local minikube deployments.</div>
+        </div>
+        <div class="ic-field">
+          <div class="ic-label">SRE Criterion A1</div>
+          <div class="ic-val">Satisfies the HTTPS requirement. Certificate CR template in <code>k8s/helm/techbleat-bank/templates/tls/cluster-issuer.yaml</code>. HTTP→HTTPS redirect enforced via Istio VirtualService rewrite rule on the Keycloak ingress route.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /infra-list -->
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 3 — DATA & EVENT FLOW DIAGRAM
+═══════════════════════════════════════════════════════════════ -->
+<section class="section" id="sec3">
+  <div class="section-hd">
+    <div class="sec-num">03</div>
+    <div>
+      <div class="sec-title">Data &amp; Event Flow Diagram</div>
+      <div class="sec-desc">Five annotated flow lanes: request path, authentication, Kafka events, AI agent, and platform ops</div>
+    </div>
+  </div>
+
+  <div class="diag-wrap">
+    <div class="diag-hd">
+      <span>End-to-End Flow — scroll right on small screens</span>
+      <span style="font-size:10px;font-weight:400">5 lanes · 26 components · colour-coded by flow type</span>
+    </div>
+    <div class="diag-scroll">
+<svg class="flow-svg" viewBox="0 0 940 462" xmlns="http://www.w3.org/2000/svg"
+     font-family="'Inter',system-ui,sans-serif" role="img"
+     aria-label="Techbleat Global Bank data and event flow diagram">
+  <title>Techbleat Global Bank — Data &amp; Event Flow</title>
+
+  <!-- ── Lane backgrounds ── -->
+  <rect class="svg-l1" x="0" y="0"   width="940" height="86"/>
+  <rect class="svg-l2" x="0" y="90"  width="940" height="86"/>
+  <rect class="svg-l3" x="0" y="180" width="940" height="86"/>
+  <rect class="svg-l4" x="0" y="270" width="940" height="86"/>
+  <rect class="svg-l5" x="0" y="360" width="940" height="102"/>
+
+  <!-- Lane labels -->
+  <text x="6" y="12"  font-size="8.5" font-weight="700" fill="#1d4ed8" letter-spacing=".7" font-family="'JetBrains Mono',monospace">REQUEST PATH</text>
+  <text x="6" y="102" font-size="8.5" font-weight="700" fill="#7c3aed" letter-spacing=".7" font-family="'JetBrains Mono',monospace">AUTH FLOW</text>
+  <text x="6" y="192" font-size="8.5" font-weight="700" fill="#b45309" letter-spacing=".7" font-family="'JetBrains Mono',monospace">KAFKA EVENTS</text>
+  <text x="6" y="282" font-size="8.5" font-weight="700" fill="#15803d" letter-spacing=".7" font-family="'JetBrains Mono',monospace">AI AGENT FLOW</text>
+  <text x="6" y="372" font-size="8.5" font-weight="700" fill="#475569" letter-spacing=".7" font-family="'JetBrains Mono',monospace">PLATFORM OPS</text>
+
+  <!-- ── Arrowhead markers ── -->
+  <defs>
+    <marker id="ab" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1,1.5 L6,3.5 L1,5.5" stroke="#2563eb" stroke-width="1.4" fill="none"/></marker>
+    <marker id="ap" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1,1.5 L6,3.5 L1,5.5" stroke="#7c3aed" stroke-width="1.4" fill="none"/></marker>
+    <marker id="aa" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1,1.5 L6,3.5 L1,5.5" stroke="#d97706" stroke-width="1.4" fill="none"/></marker>
+    <marker id="ag" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1,1.5 L6,3.5 L1,5.5" stroke="#16a34a" stroke-width="1.4" fill="none"/></marker>
+    <marker id="as" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1,1.5 L6,3.5 L1,5.5" stroke="#475569" stroke-width="1.4" fill="none"/></marker>
+    <marker id="ac" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1,1.5 L6,3.5 L1,5.5" stroke="#0891b2" stroke-width="1.4" fill="none"/></marker>
+    <marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1,1.5 L6,3.5 L1,5.5" stroke="#db2777" stroke-width="1.4" fill="none"/></marker>
+    <!-- back arrows -->
+    <marker id="ab-l" markerWidth="7" markerHeight="7" refX="1" refY="3.5" orient="auto"><path d="M6,1.5 L1,3.5 L6,5.5" stroke="#2563eb" stroke-width="1.4" fill="none"/></marker>
+    <marker id="ag-l" markerWidth="7" markerHeight="7" refX="1" refY="3.5" orient="auto"><path d="M6,1.5 L1,3.5 L6,5.5" stroke="#16a34a" stroke-width="1.4" fill="none"/></marker>
+  </defs>
+
+  <!-- ═══════ LANE 1: Request Path ═══════ -->
+  <!-- box y=18 h=50, center y=43 -->
+
+  <!-- Browser -->
+  <rect x="14" y="18" width="76" height="50" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="52" y="38" font-size="10" font-weight="700" fill="#1e40af" text-anchor="middle">Browser</text>
+  <text x="52" y="53" font-size="8.5" fill="#3b82f6" text-anchor="middle" font-family="'JetBrains Mono',monospace">React SPA</text>
+
+  <line x1="90" y1="43" x2="113" y2="43" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="101" y="39" font-size="7.5" fill="#2563eb" text-anchor="middle">HTTPS</text>
+
+  <!-- Cloudflare Edge -->
+  <rect x="114" y="18" width="88" height="50" rx="6" fill="#fef9c3" stroke="#fde047" stroke-width="1.5"/>
+  <text x="158" y="38" font-size="10" font-weight="700" fill="#713f12" text-anchor="middle">Cloudflare</text>
+  <text x="158" y="53" font-size="8.5" fill="#92400e" text-anchor="middle" font-family="'JetBrains Mono',monospace">WAF + ZT</text>
+
+  <line x1="202" y1="43" x2="222" y2="43" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="212" y="39" font-size="7.5" fill="#2563eb" text-anchor="middle">QUIC</text>
+
+  <!-- cloudflared -->
+  <rect x="223" y="18" width="90" height="50" rx="6" fill="#fed7aa" stroke="#fb923c" stroke-width="1.5"/>
+  <text x="268" y="38" font-size="10" font-weight="700" fill="#9a3412" text-anchor="middle">cloudflared</text>
+  <text x="268" y="53" font-size="8.5" fill="#c2410c" text-anchor="middle" font-family="'JetBrains Mono',monospace">2 replicas</text>
+
+  <line x1="313" y1="43" x2="333" y2="43" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#ap)"/>
+  <text x="323" y="39" font-size="7.5" fill="#7c3aed" text-anchor="middle">L7</text>
+
+  <!-- Istio GW -->
+  <rect x="334" y="18" width="85" height="50" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="376" y="38" font-size="10" font-weight="700" fill="#4c1d95" text-anchor="middle">Istio GW</text>
+  <text x="376" y="53" font-size="8.5" fill="#6d28d9" text-anchor="middle" font-family="'JetBrains Mono',monospace">VirtualSvc</text>
+
+  <line x1="419" y1="43" x2="438" y2="43" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#ap)"/>
+  <text x="428" y="39" font-size="7.5" fill="#7c3aed" text-anchor="middle">mTLS</text>
+
+  <!-- Frontend / Keycloak -->
+  <rect x="439" y="18" width="102" height="50" rx="6" fill="#fce7f3" stroke="#f9a8d4" stroke-width="1.5"/>
+  <text x="490" y="38" font-size="10" font-weight="700" fill="#831843" text-anchor="middle">Frontend/KC</text>
+  <text x="490" y="53" font-size="8.5" fill="#be185d" text-anchor="middle" font-family="'JetBrains Mono',monospace">React + Keycloak</text>
+
+  <line x1="541" y1="43" x2="560" y2="43" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#ap)"/>
+  <text x="550" y="39" font-size="7.5" fill="#7c3aed" text-anchor="middle">mTLS</text>
+
+  <!-- Backend Services -->
+  <rect x="561" y="18" width="108" height="50" rx="6" fill="#ccfbf1" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="615" y="38" font-size="10" font-weight="700" fill="#134e4a" text-anchor="middle">Backend Svcs</text>
+  <text x="615" y="53" font-size="8.5" fill="#0f766e" text-anchor="middle" font-family="'JetBrains Mono',monospace">user/txn/activity</text>
+
+  <line x1="669" y1="43" x2="688" y2="43" stroke="#0d9488" stroke-width="1.5" marker-end="url(#ac)"/>
+
+  <!-- Data Layer -->
+  <rect x="689" y="18" width="96" height="50" rx="6" fill="#fef3c7" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="737" y="38" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">Data Layer</text>
+  <text x="737" y="53" font-size="8.5" fill="#92400e" text-anchor="middle" font-family="'JetBrains Mono',monospace">PG · Redis · Kafka</text>
+
+  <!-- Response back arrow -->
+  <path d="M689,58 Q620,76 541,58" stroke="#2563eb" stroke-width="1.2" stroke-dasharray="3,2" fill="none" marker-end="url(#ab-l)"/>
+  <text x="615" y="78" font-size="7.5" fill="#2563eb" text-anchor="middle">HTTP Response (mTLS)</text>
+
+
+  <!-- ═══════ LANE 2: Auth Flow ═══════ -->
+  <!-- box y=108, center y=133 -->
+
+  <!-- Browser (unauth) -->
+  <rect x="14" y="108" width="76" height="50" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="52" y="128" font-size="10" font-weight="700" fill="#1e40af" text-anchor="middle">Browser</text>
+  <text x="52" y="143" font-size="8.5" fill="#3b82f6" text-anchor="middle" font-family="'JetBrains Mono',monospace">unauthenticated</text>
+
+  <line x1="90" y1="133" x2="148" y2="133" stroke="#db2777" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="119" y="129" font-size="7.5" fill="#db2777" text-anchor="middle">OIDC / PKCE</text>
+
+  <!-- Keycloak -->
+  <rect x="149" y="108" width="92" height="50" rx="6" fill="#fce7f3" stroke="#f9a8d4" stroke-width="1.5"/>
+  <text x="195" y="128" font-size="10" font-weight="700" fill="#831843" text-anchor="middle">Keycloak</text>
+  <text x="195" y="143" font-size="8.5" fill="#be185d" text-anchor="middle" font-family="'JetBrains Mono',monospace">realm: banking</text>
+
+  <line x1="241" y1="133" x2="308" y2="133" stroke="#db2777" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="274" y="129" font-size="7.5" fill="#db2777" text-anchor="middle">JWT RS256</text>
+
+  <!-- Frontend (with token) -->
+  <rect x="309" y="108" width="88" height="50" rx="6" fill="#fce7f3" stroke="#f9a8d4" stroke-width="1.5"/>
+  <text x="353" y="128" font-size="10" font-weight="700" fill="#831843" text-anchor="middle">Frontend</text>
+  <text x="353" y="143" font-size="8.5" fill="#be185d" text-anchor="middle" font-family="'JetBrains Mono',monospace">Keycloak JS</text>
+
+  <line x1="397" y1="133" x2="462" y2="133" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#ap)"/>
+  <text x="429" y="129" font-size="7.5" fill="#7c3aed" text-anchor="middle">Bearer JWT</text>
+
+  <!-- Backend Services (auth guard) -->
+  <rect x="463" y="108" width="100" height="50" rx="6" fill="#ccfbf1" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="513" y="128" font-size="10" font-weight="700" fill="#134e4a" text-anchor="middle">Backend Svcs</text>
+  <text x="513" y="143" font-size="8.5" fill="#0f766e" text-anchor="middle" font-family="'JetBrains Mono',monospace">auth.py guard</text>
+
+  <line x1="563" y1="133" x2="626" y2="133" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#ap)"/>
+  <text x="594" y="129" font-size="7.5" fill="#7c3aed" text-anchor="middle">JWKS verify</text>
+
+  <!-- JWKS / RS256 -->
+  <rect x="627" y="108" width="98" height="50" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="676" y="128" font-size="10" font-weight="700" fill="#4c1d95" text-anchor="middle">JWKS RS256</text>
+  <text x="676" y="143" font-size="8.5" fill="#6d28d9" text-anchor="middle" font-family="'JetBrains Mono',monospace">PyJWT / Spring</text>
+
+  <!-- Ownership check note -->
+  <rect x="740" y="112" width="138" height="42" rx="6" fill="#fef9c3" stroke="#fde047" stroke-width="1.2"/>
+  <text x="809" y="128" font-size="9" font-weight="600" fill="#713f12" text-anchor="middle">assertOwnership()</text>
+  <text x="809" y="143" font-size="8.5" fill="#92400e" text-anchor="middle">Cross-account denied</text>
+
+
+  <!-- ═══════ LANE 3: Kafka Events ═══════ -->
+  <!-- box y=198, center y=223 -->
+
+  <!-- txn-service (producer) -->
+  <rect x="14" y="198" width="100" height="50" rx="6" fill="#ccfbf1" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="64" y="218" font-size="10" font-weight="700" fill="#134e4a" text-anchor="middle">txn-service</text>
+  <text x="64" y="233" font-size="8.5" fill="#0f766e" text-anchor="middle" font-family="'JetBrains Mono',monospace">Java · Producer</text>
+
+  <!-- user-service (producer) -->
+  <rect x="124" y="198" width="100" height="50" rx="6" fill="#ccfbf1" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="174" y="218" font-size="10" font-weight="700" fill="#134e4a" text-anchor="middle">user-service</text>
+  <text x="174" y="233" font-size="8.5" fill="#0f766e" text-anchor="middle" font-family="'JetBrains Mono',monospace">Python · Producer</text>
+
+  <!-- Arrows to Kafka -->
+  <path d="M114,218 Q310,195 379,218" stroke="#d97706" stroke-width="1.5" fill="none" marker-end="url(#aa)"/>
+  <path d="M224,218 Q310,205 379,218" stroke="#d97706" stroke-width="1.5" fill="none" marker-end="url(#aa)"/>
+  <text x="290" y="200" font-size="7.5" fill="#d97706" text-anchor="middle">txn.events / user.events</text>
+
+  <!-- Kafka -->
+  <rect x="380" y="198" width="90" height="50" rx="6" fill="#fef3c7" stroke="#fcd34d" stroke-width="1.5"/>
+  <text x="425" y="218" font-size="10" font-weight="700" fill="#78350f" text-anchor="middle">Kafka</text>
+  <text x="425" y="233" font-size="8.5" fill="#92400e" text-anchor="middle" font-family="'JetBrains Mono',monospace">3 topics</text>
+
+  <!-- Arrow from Kafka to activity-svc -->
+  <line x1="470" y1="223" x2="553" y2="223" stroke="#d97706" stroke-width="1.5" marker-end="url(#aa)"/>
+  <text x="511" y="219" font-size="7.5" fill="#d97706" text-anchor="middle">consume</text>
+
+  <!-- activity-service (consumer) -->
+  <rect x="554" y="198" width="108" height="50" rx="6" fill="#ccfbf1" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="608" y="218" font-size="10" font-weight="700" fill="#134e4a" text-anchor="middle">activity-svc</text>
+  <text x="608" y="233" font-size="8.5" fill="#0f766e" text-anchor="middle" font-family="'JetBrains Mono',monospace">Python · Consumer</text>
+
+  <!-- Arrow to PostgreSQL -->
+  <line x1="662" y1="223" x2="724" y2="223" stroke="#0891b2" stroke-width="1.5" marker-end="url(#ac)"/>
+  <text x="693" y="219" font-size="7.5" fill="#0891b2" text-anchor="middle">persist</text>
+
+  <!-- PostgreSQL -->
+  <rect x="725" y="198" width="96" height="50" rx="6" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="773" y="218" font-size="10" font-weight="700" fill="#14532d" text-anchor="middle">PostgreSQL</text>
+  <text x="773" y="233" font-size="8.5" fill="#15803d" text-anchor="middle" font-family="'JetBrains Mono',monospace">Audit Trail</text>
+
+
+  <!-- ═══════ LANE 4: AI Agent Flow ═══════ -->
+  <!-- box y=288, center y=313 -->
+
+  <!-- User chat request -->
+  <rect x="14" y="288" width="82" height="50" rx="6" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="55" y="308" font-size="10" font-weight="700" fill="#1e40af" text-anchor="middle">User Chat</text>
+  <text x="55" y="323" font-size="8.5" fill="#3b82f6" text-anchor="middle" font-family="'JetBrains Mono',monospace">Frontend</text>
+
+  <line x1="96" y1="313" x2="157" y2="313" stroke="#16a34a" stroke-width="1.5" marker-end="url(#ag)"/>
+  <text x="127" y="309" font-size="7.5" fill="#16a34a" text-anchor="middle">POST /chat</text>
+
+  <!-- finance-agent -->
+  <rect x="158" y="288" width="112" height="50" rx="6" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="214" y="308" font-size="10" font-weight="700" fill="#14532d" text-anchor="middle">finance-agent</text>
+  <text x="214" y="323" font-size="8.5" fill="#15803d" text-anchor="middle" font-family="'JetBrains Mono',monospace">Python · LLM orch.</text>
+
+  <!-- Arrow to Claude -->
+  <path d="M270,308 Q420,285 518,296" stroke="#16a34a" stroke-width="1.5" fill="none" marker-end="url(#ag)"/>
+  <text x="390" y="283" font-size="7.5" fill="#16a34a" text-anchor="middle">primary: Anthropic API</text>
+
+  <!-- Arrow to OpenAI -->
+  <path d="M270,318 Q420,340 518,328" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="4,2" fill="none" marker-end="url(#ag)"/>
+  <text x="390" y="348" font-size="7.5" fill="#16a34a" text-anchor="middle">fallback: OpenAI API</text>
+
+  <!-- Claude API -->
+  <rect x="519" y="285" width="105" height="38" rx="6" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="571" y="300" font-size="9.5" font-weight="700" fill="#14532d" text-anchor="middle">Claude API</text>
+  <text x="571" y="314" font-size="8" fill="#15803d" text-anchor="middle" font-family="'JetBrains Mono',monospace">claude-opus-5-5</text>
+
+  <!-- OpenAI API -->
+  <rect x="519" y="330" width="105" height="38" rx="6" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="571" y="345" font-size="9.5" font-weight="700" fill="#14532d" text-anchor="middle">OpenAI API</text>
+  <text x="571" y="359" font-size="8" fill="#15803d" text-anchor="middle" font-family="'JetBrains Mono',monospace">gpt-4o</text>
+
+  <!-- SSE response back -->
+  <path d="M519,310 Q395,325 270,313" stroke="#16a34a" stroke-width="1.2" stroke-dasharray="3,2" fill="none" marker-end="url(#ag-l)"/>
+  <text x="393" y="330" font-size="7.5" fill="#16a34a" text-anchor="middle">SSE stream → user</text>
+
+
+  <!-- ═══════ LANE 5: Platform Ops ═══════ -->
+  <!-- box y=378, center y=403 -->
+
+  <!-- GitHub -->
+  <rect x="14" y="378" width="76" height="50" rx="6" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="52" y="398" font-size="10" font-weight="700" fill="#0f172a" text-anchor="middle">GitHub</text>
+  <text x="52" y="413" font-size="8.5" fill="#475569" text-anchor="middle" font-family="'JetBrains Mono',monospace">git push</text>
+
+  <line x1="90" y1="403" x2="115" y2="403" stroke="#475569" stroke-width="1.5" marker-end="url(#as)"/>
+  <text x="102" y="399" font-size="7.5" fill="#475569" text-anchor="middle">CI</text>
+
+  <!-- GitHub Actions / GHCR -->
+  <rect x="116" y="378" width="110" height="50" rx="6" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="171" y="398" font-size="10" font-weight="700" fill="#0f172a" text-anchor="middle">Actions/GHCR</text>
+  <text x="171" y="413" font-size="8.5" fill="#475569" text-anchor="middle" font-family="'JetBrains Mono',monospace">test·scan·sign</text>
+
+  <line x1="226" y1="403" x2="253" y2="403" stroke="#475569" stroke-width="1.5" marker-end="url(#as)"/>
+  <text x="239" y="399" font-size="7.5" fill="#475569" text-anchor="middle">sync</text>
+
+  <!-- ArgoCD -->
+  <rect x="254" y="378" width="88" height="50" rx="6" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="298" y="398" font-size="10" font-weight="700" fill="#4c1d95" text-anchor="middle">ArgoCD</text>
+  <text x="298" y="413" font-size="8.5" fill="#6d28d9" text-anchor="middle" font-family="'JetBrains Mono',monospace">GitOps sync</text>
+
+  <line x1="342" y1="403" x2="367" y2="403" stroke="#475569" stroke-width="1.5" marker-end="url(#as)"/>
+  <text x="354" y="399" font-size="7.5" fill="#475569" text-anchor="middle">deploy</text>
+
+  <!-- Cluster (Banking NS) -->
+  <rect x="368" y="378" width="108" height="50" rx="6" fill="#ccfbf1" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="422" y="398" font-size="10" font-weight="700" fill="#134e4a" text-anchor="middle">Cluster (K8s)</text>
+  <text x="422" y="413" font-size="8.5" fill="#0f766e" text-anchor="middle" font-family="'JetBrains Mono',monospace">banking namespace</text>
+
+  <!-- Arrow to Datadog -->
+  <line x1="476" y1="403" x2="547" y2="403" stroke="#0891b2" stroke-width="1.5" marker-end="url(#ac)"/>
+  <text x="511" y="399" font-size="7.5" fill="#0891b2" text-anchor="middle">telemetry</text>
+
+  <!-- Datadog -->
+  <rect x="548" y="378" width="102" height="50" rx="6" fill="#ecfeff" stroke="#a5f3fc" stroke-width="1.5"/>
+  <text x="599" y="398" font-size="10" font-weight="700" fill="#0e7490" text-anchor="middle">Datadog Agent</text>
+  <text x="599" y="413" font-size="8.5" fill="#0891b2" text-anchor="middle" font-family="'JetBrains Mono',monospace">DaemonSet 3/3</text>
+
+  <line x1="650" y1="403" x2="717" y2="403" stroke="#0891b2" stroke-width="1.5" marker-end="url(#ac)"/>
+  <text x="683" y="399" font-size="7.5" fill="#0891b2" text-anchor="middle">forward</text>
+
+  <!-- Datadog EU -->
+  <rect x="718" y="378" width="100" height="50" rx="6" fill="#ecfeff" stroke="#a5f3fc" stroke-width="1.5"/>
+  <text x="768" y="398" font-size="10" font-weight="700" fill="#0e7490" text-anchor="middle">Datadog EU</text>
+  <text x="768" y="413" font-size="8.5" fill="#0891b2" text-anchor="middle" font-family="'JetBrains Mono',monospace">app.datadoghq.eu</text>
+
+  <!-- OTEL Collector -->
+  <rect x="828" y="378" width="96" height="50" rx="6" fill="#ecfeff" stroke="#a5f3fc" stroke-width="1.5"/>
+  <text x="876" y="398" font-size="10" font-weight="700" fill="#0e7490" text-anchor="middle">OTEL</text>
+  <text x="876" y="413" font-size="8.5" fill="#0891b2" text-anchor="middle" font-family="'JetBrains Mono',monospace">Collector</text>
+
+  <!-- Arrow OTEL to Datadog EU -->
+  <path d="M828,395 Q790,430 818,413" stroke="#0891b2" stroke-width="1" stroke-dasharray="3,2" fill="none" marker-end="url(#ac)"/>
+
+</svg>
+    </div><!-- /diag-scroll -->
+    <div class="diag-legend">
+      <div class="dl-item"><div class="dl-line" style="background:#2563eb"></div>HTTPS / REST</div>
+      <div class="dl-item"><div class="dl-line" style="background:#7c3aed;border-top:2px dashed #7c3aed;height:0"></div>Istio mTLS</div>
+      <div class="dl-item"><div class="dl-line" style="background:#d97706"></div>Kafka Event</div>
+      <div class="dl-item"><div class="dl-line" style="background:#db2777"></div>OIDC / JWT</div>
+      <div class="dl-item"><div class="dl-line" style="background:#16a34a"></div>AI API / SSE</div>
+      <div class="dl-item"><div class="dl-line" style="background:#475569"></div>GitOps / CI</div>
+      <div class="dl-item"><div class="dl-line" style="background:#0891b2"></div>Telemetry</div>
+    </div>
+  </div><!-- /diag-wrap -->
+
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 4 — AREAS OF IMPROVEMENT
+═══════════════════════════════════════════════════════════════ -->
+<section class="section" id="sec4">
+  <div class="section-hd">
+    <div class="sec-num">04</div>
+    <div>
+      <div class="sec-title">Areas of Improvement</div>
+      <div class="sec-desc">Prioritised findings across security hardening, production readiness, and reliability</div>
+    </div>
+  </div>
+
+  <p class="prose">The platform satisfies all A1–A12 SRE criteria. The following improvements are recommended to move from a proof-of-concept deployment to a production-grade, hardened system.</p>
+
+  <div class="sub">
+    <div class="sub-title">Critical — Production Readiness</div>
+    <div class="impr-list">
+
+      <div class="impr-row">
+        <div><span class="pbadge p-critical">Critical</span></div>
+        <div>
+          <div class="impr-title">Replace Keycloak start-dev mode with start (production mode)</div>
+          <div class="impr-desc">Keycloak is currently started with <code>start-dev</code>, which disables hostname verification and uses an embedded H2 database. For production, switch to <code>start</code> with <code>KC_HOSTNAME</code>, a PostgreSQL backing store, and a proper TLS keystore. The development mode allows access to the admin console without authentication restrictions.</div>
+        </div>
+        <div class="impr-effort">Effort: Medium</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-critical">Critical</span></div>
+        <div>
+          <div class="impr-title">Harden Keycloak password policy (minimum 3 chars is a dev default)</div>
+          <div class="impr-desc">The banking realm currently enforces a 3-character minimum password — a development convenience. Production policy must enforce at minimum 12 characters, complexity rules (upper, lower, digit, special), and a brute-force detection policy with account lockout after N failed attempts.</div>
+        </div>
+        <div class="impr-effort">Effort: Low</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-critical">Critical</span></div>
+        <div>
+          <div class="impr-title">Complete EKS CI/CD pipeline wiring</div>
+          <div class="impr-desc">The <code>values-eks.yaml</code> file exists and the Helm lint job covers it (<code>continue-on-error: true</code>), but the EKS deployment target in <code>deploy.yml</code> is not yet connected to AWS credentials, ECR, or the EKS kubeconfig. An actual production rollout requires IAM role binding, OIDC federation, and secret rotation strategy for the cluster.</div>
+        </div>
+        <div class="impr-effort">Effort: High</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">High — Security Hardening</div>
+    <div class="impr-list">
+
+      <div class="impr-row">
+        <div><span class="pbadge p-high">High</span></div>
+        <div>
+          <div class="impr-title">Lock finance-agent tool allowlist to per-user scope</div>
+          <div class="impr-desc">The finance-agent enforces the <code>banking-ai-agent</code> role at the API boundary, but the set of tools available to the LLM is not scoped to the authenticated user's own data. A malicious or confused prompt could theoretically instruct the model to query another user's transactions through a tool call. Tool inputs must be validated against the requesting user's JWT claims before execution.</div>
+        </div>
+        <div class="impr-effort">Effort: Medium</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-high">High</span></div>
+        <div>
+          <div class="impr-title">Inject Redis password into Datadog check configuration</div>
+          <div class="impr-desc">Datadog autodiscovery detects the Redis pod but the check fails with <code>Authentication required</code> because the <code>ad.datadoghq.com/redis.checks</code> pod annotation is not configured with the Redis password reference (<code>%%env_REDIS_PASSWORD%%</code>). This generates recurring errors in the Datadog agent and produces no Redis metrics.</div>
+        </div>
+        <div class="impr-effort">Effort: Low</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-high">High</span></div>
+        <div>
+          <div class="impr-title">Enable Redis TLS and at-rest encryption</div>
+          <div class="impr-desc">Redis currently uses password auth but plaintext connections within the cluster. Enabling TLS on the Redis port and enabling at-rest encryption for the PersistentVolume would address compliance requirements for session data and JWT revocation lists, which may contain sensitive token identifiers.</div>
+        </div>
+        <div class="impr-effort">Effort: Medium</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-high">High</span></div>
+        <div>
+          <div class="impr-title">Add Horizontal Pod Autoscaler (HPA) for backend services</div>
+          <div class="impr-desc">Under sustained load (e.g., month-end statement generation, market volatility driving AI chat usage), the transaction service and finance-agent are most likely to become bottlenecks. HPA on CPU/memory with KEDA for Kafka consumer lag would allow automatic scale-out without manual intervention.</div>
+        </div>
+        <div class="impr-effort">Effort: Low</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">Medium — Reliability &amp; Observability</div>
+    <div class="impr-list">
+
+      <div class="impr-row">
+        <div><span class="pbadge p-medium">Medium</span></div>
+        <div>
+          <div class="impr-title">Kafka and Redis backup strategy (only PostgreSQL has a backup CronJob)</div>
+          <div class="impr-desc">The daily PostgreSQL backup CronJob and restore script provide RPO ≤24h for relational data. However, the Kafka topic data and Redis session cache have no persistent backup. While Kafka is append-only and Redis is a cache, a stateful restart could lose in-flight events and active sessions. Consider Kafka MirrorMaker for topic replication and Redis AOF persistence.</div>
+        </div>
+        <div class="impr-effort">Effort: Medium</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-medium">Medium</span></div>
+        <div>
+          <div class="impr-title">Propagate distributed trace context (correlation IDs) across all services</div>
+          <div class="impr-desc">The OTEL Collector receives spans from Istio sidecars but application-level trace context (<code>W3C TraceContext</code> headers) is not consistently forwarded by the Python and Java services when making downstream calls. This creates broken trace trees in Datadog APM, making it difficult to correlate a slow user request end-to-end through user-service → transaction-service → Kafka → activity-service.</div>
+        </div>
+        <div class="impr-effort">Effort: Medium</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-medium">Medium</span></div>
+        <div>
+          <div class="impr-title">Increase test coverage — services currently have no test files in CI</div>
+          <div class="impr-desc">The CI pipeline checks for test directories and skips gracefully if none exist. Adding meaningful unit tests for the JWT validation logic, the Kafka producer/consumer paths, and the transaction ownership check would prevent regressions in the most security-critical code paths. Finance-agent LLM routing logic is a strong candidate for prompt-level evaluation.</div>
+        </div>
+        <div class="impr-effort">Effort: High</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="sub">
+    <div class="sub-title">Low — Developer Experience</div>
+    <div class="impr-list">
+
+      <div class="impr-row">
+        <div><span class="pbadge p-low">Low</span></div>
+        <div>
+          <div class="impr-title">Add GITHUB_REPO_URL to .env for ArgoCD Application CR auto-wiring</div>
+          <div class="impr-desc">The ArgoCD Application CR in <code>deploy-local.sh</code> references the GitHub repository URL. This value must be set as <code>GITHUB_REPO_URL=https://github.com/jibolaolu/sre2026-final-project.git</code> in the project <code>.env</code> for the ArgoCD sync to connect to the correct remote on a fresh deploy. Currently requires manual intervention.</div>
+        </div>
+        <div class="impr-effort">Effort: Trivial</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-low">Low</span></div>
+        <div>
+          <div class="impr-title">Correct deploy-local.sh output — prints datadoghq.com but site is EU (.eu)</div>
+          <div class="impr-desc">The final deployment summary in <code>deploy-local.sh</code> prints <code>https://app.datadoghq.com</code> as the Datadog URL. The <code>DatadogAgent</code> CR sets <code>site: "datadoghq.eu"</code>. The deploy summary should print <code>https://app.datadoghq.eu</code> to avoid confusion when operators try to find logs after deploy.</div>
+        </div>
+        <div class="impr-effort">Effort: Trivial</div>
+      </div>
+
+      <div class="impr-row">
+        <div><span class="pbadge p-low">Low</span></div>
+        <div>
+          <div class="impr-title">Add Kafka consumer lag dashboards to Datadog</div>
+          <div class="impr-desc">With the Kafka integration properly configured in Datadog, consumer group lag metrics for <code>activity-consumer-group</code> would provide visibility into event processing backpressure. A lag alert threshold would fire before the audit trail falls behind under load, allowing operators to scale activity-service replicas proactively.</div>
+        </div>
+        <div class="impr-effort">Effort: Low</div>
+      </div>
+
+    </div>
+  </div>
+
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SECTION 5 — TECHNOLOGY STACK
+═══════════════════════════════════════════════════════════════ -->
+<section class="section" id="sec5">
+  <div class="section-hd">
+    <div class="sec-num">05</div>
+    <div>
+      <div class="sec-title">Technology Stack Reference</div>
+      <div class="sec-desc">Full inventory of languages, frameworks, and platform components</div>
+    </div>
+  </div>
+
+  <div class="stack-wrap">
+    <table class="stack">
+      <thead>
+        <tr>
+          <th>Component</th>
+          <th>Technology</th>
+          <th>Version / Notes</th>
+          <th>Namespace</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Frontend</td><td>React, Vite, Nginx</td><td><code>React 18</code> · Keycloak JS adapter · Nginx Alpine</td><td>banking</td></tr>
+        <tr><td>user-service</td><td>Python, FastAPI, PyJWT</td><td><code>Python 3.12</code> · FastAPI async · JWKS RS256</td><td>banking</td></tr>
+        <tr><td>transaction-service</td><td>Java, Spring Boot</td><td><code>Java 17</code> · Spring Boot 3 · Spring Security · JPA</td><td>banking</td></tr>
+        <tr><td>activity-service</td><td>Python, FastAPI, Kafka</td><td><code>Python 3.12</code> · aiokafka consumer · PyJWT</td><td>banking</td></tr>
+        <tr><td>finance-agent</td><td>Python, Anthropic SDK, OpenAI SDK</td><td><code>Python 3.12</code> · claude-opus-5-5 · gpt-4o · SSE</td><td>banking</td></tr>
+        <tr><td>Identity Provider</td><td>Keycloak</td><td><code>Keycloak 24</code> · OIDC / OAuth 2.0 / PKCE · RS256 JWT</td><td>banking</td></tr>
+        <tr><td>Service Mesh</td><td>Istio</td><td>STRICT mTLS · AuthorizationPolicy · PeerAuthentication</td><td>istio-system</td></tr>
+        <tr><td>Ingress</td><td>Cloudflare Tunnel (cloudflared)</td><td>Zero Trust · WAF · DDoS · No public IP</td><td>banking</td></tr>
+        <tr><td>Primary Database</td><td>PostgreSQL</td><td><code>PostgreSQL 15</code> · PVC · Daily CronJob backup</td><td>banking</td></tr>
+        <tr><td>Cache / Sessions</td><td>Redis</td><td><code>Redis 7</code> · StatefulSet · Password auth</td><td>banking</td></tr>
+        <tr><td>Event Bus</td><td>Apache Kafka</td><td>StatefulSet · 3 topics · Consumer groups</td><td>banking</td></tr>
+        <tr><td>Orchestration</td><td>Kubernetes</td><td>minikube (local) · AWS EKS (production) · Helm charts</td><td>—</td></tr>
+        <tr><td>GitOps</td><td>ArgoCD</td><td>Auto-sync · Self-heal · Helm native</td><td>argocd</td></tr>
+        <tr><td>CI/CD</td><td>GitHub Actions</td><td>GHCR · Trivy · Cosign · Gitleaks · Syft SBOM</td><td>—</td></tr>
+        <tr><td>Observability</td><td>Datadog</td><td>DaemonSet · APM · Logs · EU region (<code>datadoghq.eu</code>)</td><td>datadog</td></tr>
+        <tr><td>Tracing</td><td>OpenTelemetry Collector</td><td>OTLP → Datadog APM + Jaeger</td><td>banking</td></tr>
+        <tr><td>TLS Automation</td><td>cert-manager</td><td>ClusterIssuer · Let's Encrypt (EKS) · Self-signed (local)</td><td>cert-manager</td></tr>
+        <tr><td>Secret Scanning</td><td>Gitleaks + pre-commit</td><td><code>gitleaks-action@v2</code> · <code>.pre-commit-config.yaml</code></td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</section>
+
+
+<!-- ═══════ Footer ═══════ -->
+<footer class="doc-footer">
+  <span>Techbleat Global Bank · Technical Architecture Report v1.0 · 26 Oct 2026</span>
+  <span>SRE Criteria A1–A12 · <span style="color:var(--green);font-weight:600">All Resolved ✓</span></span>
+</footer>
+
+</div><!-- /doc -->

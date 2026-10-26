@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Techbleat Bank · K8s Data Flow</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root{--bg:#060b18;--surf:#0d1424;--surf2:#131f33;--txt:#e2e8f0;--muted:#64748b;--bdr:#1e2d45}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--txt);overflow:hidden;height:100vh;user-select:none}
+.hdr{position:fixed;top:0;left:0;right:0;z-index:100;height:52px;background:rgba(6,11,24,.97);backdrop-filter:blur(12px);border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;padding:0 20px}
+.hl{display:flex;align-items:center;gap:10px}
+.logo{font-size:14px;font-weight:700;color:#60a5fa;letter-spacing:-.3px}
+.badge{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;background:var(--surf2);color:#2dd4bf;border:1px solid #14b8a6;border-radius:4px;padding:2px 7px;letter-spacing:.5px}
+.ctrl{display:flex;align-items:center;gap:6px}
+.btn{background:var(--surf2);border:1px solid var(--bdr);color:var(--txt);font-family:'Space Grotesk',sans-serif;font-size:12px;font-weight:500;padding:5px 12px;border-radius:6px;cursor:pointer;transition:all .15s}
+.btn:hover{border-color:#3b82f6;color:#60a5fa}
+.zl{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);min-width:42px;text-align:center}
+.legend{position:fixed;bottom:20px;left:20px;z-index:100;background:rgba(13,20,36,.97);backdrop-filter:blur(12px);border:1px solid var(--bdr);border-radius:10px;padding:12px 16px}
+.lt{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:9px}
+.lg{display:grid;grid-template-columns:1fr 1fr;gap:5px 16px}
+.li{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);white-space:nowrap}
+.ld{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.hint{position:fixed;bottom:20px;right:20px;z-index:100;background:rgba(13,20,36,.9);border:1px solid var(--bdr);border-radius:8px;padding:8px 12px;font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace}
+#wrap{position:fixed;top:52px;left:0;right:0;bottom:0;overflow:hidden;cursor:grab}
+#wrap.dr{cursor:grabbing}
+#cv{position:absolute;transform-origin:0 0}
+svg.cx{position:absolute;top:0;left:0;pointer-events:none;overflow:visible}
+.node{position:absolute;border-radius:10px;border:1px solid transparent;cursor:pointer;transition:transform .2s,box-shadow .2s}
+.node:hover{transform:translateY(-3px) scale(1.02);z-index:10}
+.n-in{padding:11px 14px}
+.n-ic{font-size:17px;margin-bottom:4px}
+.n-lb{font-size:12px;font-weight:700;line-height:1.2}
+.n-sb{font-size:10px;font-weight:400;margin-top:2px;opacity:.65;font-family:'JetBrains Mono',monospace}
+.n-ps{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}
+.n-p{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;padding:2px 5px;border-radius:3px;background:rgba(255,255,255,.07)}
+.nc{background:linear-gradient(135deg,#0f1d35,#0d1424);border-color:#3b82f6;box-shadow:0 0 18px rgba(59,130,246,.1)}.nc .n-lb{color:#60a5fa}
+.nsec{background:linear-gradient(135deg,#1e160a,#0d1424);border-color:#f59e0b;box-shadow:0 0 18px rgba(245,158,11,.1)}.nsec .n-lb{color:#fbbf24}
+.ningr{background:linear-gradient(135deg,#1e120a,#0d1424);border-color:#f97316;box-shadow:0 0 18px rgba(249,115,22,.1)}.ningr .n-lb{color:#fb923c}
+.nmesh{background:linear-gradient(135deg,#160f2a,#0d1424);border-color:#8b5cf6;box-shadow:0 0 18px rgba(139,92,246,.1)}.nmesh .n-lb{color:#a78bfa}
+.nauth{background:linear-gradient(135deg,#1e0a1a,#0d1424);border-color:#ec4899;box-shadow:0 0 18px rgba(236,72,153,.1)}.nauth .n-lb{color:#f472b6}
+.nfe{background:linear-gradient(135deg,#0a1628,#0d1424);border-color:#60a5fa;box-shadow:0 0 18px rgba(96,165,250,.1)}.nfe .n-lb{color:#93c5fd}
+.nsvc{background:linear-gradient(135deg,#0a1e1c,#0d1424);border-color:#14b8a6;box-shadow:0 0 18px rgba(20,184,166,.1)}.nsvc .n-lb{color:#2dd4bf}
+.nai{background:linear-gradient(135deg,#0a1e10,#0d1424);border-color:#22c55e;box-shadow:0 0 18px rgba(34,197,94,.1)}.nai .n-lb{color:#4ade80}
+.nllm{background:linear-gradient(135deg,#0a1a10,#0d1424);border-color:#10b981;box-shadow:0 0 18px rgba(16,185,129,.1)}.nllm .n-lb{color:#34d399}
+.ndat{background:linear-gradient(135deg,#1a150a,#0d1424);border-color:#f59e0b;box-shadow:0 0 18px rgba(245,158,11,.1)}.ndat .n-lb{color:#fbbf24}
+.ngit{background:linear-gradient(135deg,#0f0f28,#0d1424);border-color:#6366f1;box-shadow:0 0 18px rgba(99,102,241,.1)}.ngit .n-lb{color:#818cf8}
+.nci{background:linear-gradient(135deg,#101820,#0d1424);border-color:#334155;box-shadow:0 0 18px rgba(51,65,85,.1)}.nci .n-lb{color:#94a3b8}
+.nobs{background:linear-gradient(135deg,#0a1a1e,#0d1424);border-color:#06b6d4;box-shadow:0 0 18px rgba(6,182,212,.1)}.nobs .n-lb{color:#22d3ee}
+.tooltip{position:fixed;z-index:200;background:rgba(13,20,36,.98);border:1px solid var(--bdr);border-radius:10px;padding:13px 15px;max-width:260px;pointer-events:none;opacity:0;transition:opacity .15s;font-size:12px;line-height:1.6;color:var(--muted)}
+.tooltip.show{opacity:1}
+.t-tl{font-size:13px;font-weight:700;color:var(--txt);margin-bottom:5px}
+.t-tg{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;margin-bottom:7px}
+.ns-box{position:absolute;border-radius:12px;pointer-events:none;border:1px dashed rgba(100,116,139,.18);background:rgba(255,255,255,.007)}
+.ns-lbl{position:absolute;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:1px;color:rgba(100,116,139,.35);pointer-events:none}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div class="hl">
+    <span class="logo">Techbleat Global Bank</span>
+    <span class="badge">K8s END-TO-END DATA FLOW</span>
+  </div>
+  <div class="ctrl">
+    <button class="btn" onclick="doZoom(-0.15)">−</button>
+    <span class="zl" id="zl">82%</span>
+    <button class="btn" onclick="doZoom(0.15)">+</button>
+    <button class="btn" onclick="doReset()">Reset</button>
+  </div>
+</div>
+<div class="legend">
+  <div class="lt">Layer</div>
+  <div class="lg">
+    <div class="li"><div class="ld" style="background:#3b82f6"></div>Clients</div>
+    <div class="li"><div class="ld" style="background:#f59e0b"></div>Edge Security</div>
+    <div class="li"><div class="ld" style="background:#f97316"></div>Ingress</div>
+    <div class="li"><div class="ld" style="background:#8b5cf6"></div>Service Mesh</div>
+    <div class="li"><div class="ld" style="background:#ec4899"></div>Auth / Identity</div>
+    <div class="li"><div class="ld" style="background:#14b8a6"></div>Backend Services</div>
+    <div class="li"><div class="ld" style="background:#22c55e"></div>AI Service</div>
+    <div class="li"><div class="ld" style="background:#10b981"></div>LLM Providers</div>
+    <div class="li"><div class="ld" style="background:#f59e0b"></div>Data / Messaging</div>
+    <div class="li"><div class="ld" style="background:#6366f1"></div>GitOps / CI</div>
+    <div class="li"><div class="ld" style="background:#06b6d4"></div>Observability</div>
+  </div>
+</div>
+<div class="hint">🖱 Drag · Scroll to zoom · Click for details</div>
+<div id="wrap">
+  <div id="cv"><svg class="cx" id="svgl"></svg></div>
+</div>
+<div class="tooltip" id="tip">
+  <div class="t-tl" id="t-tl"></div>
+  <div class="t-tg" id="t-tg"></div>
+  <div id="t-bd"></div>
+</div>
+<script>
+const TC={'Client':'#3b82f6','Edge Security':'#f59e0b','Ingress':'#f97316','Service Mesh':'#8b5cf6','Auth / Identity':'#ec4899','Frontend':'#60a5fa','Backend Service':'#14b8a6','AI Service':'#22c55e','LLM Provider':'#10b981','Messaging':'#f59e0b','Data Store':'#f59e0b','CI/CD':'#64748b','GitOps':'#6366f1','Observability':'#06b6d4'};
+
+const NODES=[
+  {id:'browser',    x:40,  y:80,  w:150,h:90, t:'nc',   ic:'🌐',lb:'Web Browser',         sb:'React SPA',                   ps:['HTTPS','JWT'],                tag:'Client',          d:'Accesses via techbleat-bank.local. Route: Cloudflare Edge → cloudflared → Istio IngressGateway → Frontend pod. Auth via Keycloak PKCE flow in the browser.'},
+  {id:'mobile',     x:40,  y:230, w:150,h:90, t:'nc',   ic:'📱',lb:'API Client',           sb:'REST Consumer',                ps:['Bearer JWT'],                 tag:'Client',          d:'Mobile app or external REST client. Sends Bearer JWT in Authorization header. Follows the same Cloudflare → cloudflared → Istio path.'},
+  {id:'cf-edge',    x:220, y:150, w:160,h:105,t:'nsec', ic:'🛡',lb:'Cloudflare Edge',      sb:'WAF · DDoS · Zero Trust',      ps:['WAF','TLS 1.3','No pub IP'],  tag:'Edge Security',   d:'Cloudflare Zero Trust edge. OWASP WAF, DDoS protection, TLS 1.3 termination. The cluster has NO public IP — all traffic enters via the cloudflared outbound tunnel only.'},
+  {id:'cloudflared',x:450, y:80,  w:160,h:90, t:'ningr',ic:'🔗',lb:'cloudflared',          sb:'Tunnel · 2 replicas',          ps:['Outbound','banking ns'],      tag:'Ingress',         d:'2-replica Deployment in banking namespace. Opens a persistent outbound QUIC tunnel to Cloudflare. Receives inbound traffic and forwards to Istio IngressGateway. Istio sidecar injection disabled (annotation: sidecar.istio.io/inject: "false").'},
+  {id:'istio-gw',   x:450, y:240, w:160,h:90, t:'nmesh',ic:'⚓',lb:'Istio IngressGateway', sb:'L7 Routing · VirtualService',  ps:['Gateway CRD','NodePort'],     tag:'Service Mesh',    d:'Entry point for all HTTP traffic inside the cluster. Gateway CRD + VirtualService routes: techbleat-bank.local → frontend, keycloak.techbleat-bank.local → keycloak. NodePort service type in minikube.'},
+  {id:'keycloak',   x:690, y:80,  w:155,h:90, t:'nauth',ic:'🔐',lb:'Keycloak',             sb:'OIDC · OAuth 2.0',             ps:['JWT','RBAC','banking realm'], tag:'Auth / Identity',  d:'Identity provider in banking namespace. Realm: banking. Clients: banking-frontend (public PKCE), banking-backend (confidential). Provisioned automatically by keycloak-provisioner Job on startup. Admin: keycloak.techbleat-bank.local/admin.'},
+  {id:'frontend',   x:690, y:230, w:155,h:90, t:'nfe',  ic:'🖥',lb:'Frontend',             sb:'React + Vite · Nginx',         ps:['SPA','Keycloak JS','PKCE'],  tag:'Frontend',        d:'React SPA served by Nginx container. Keycloak JS adapter (PKCE flow) handles auth. All REST calls carry Authorization: Bearer JWT. Built and pushed to ghcr.io/jibolaolu/frontend:<sha> by GitHub Actions.'},
+  {id:'user-svc',   x:910, y:80,  w:155,h:90, t:'nsvc', ic:'👤',lb:'user-service',        sb:'Python · FastAPI',             ps:['JWT Guard','PostgreSQL'],     tag:'Backend Service', d:'User registration, profile management, credential validation. Validates JWTs against Keycloak JWKS endpoint. SQLAlchemy → PostgreSQL. Redis for session cache. ghcr.io/jibolaolu/user-service.'},
+  {id:'activity-svc',x:910,y:230, w:155,h:90, t:'nsvc', ic:'📋',lb:'activity-service',    sb:'Python · FastAPI',             ps:['Events','Kafka','PG'],        tag:'Backend Service', d:'Audit trail and activity feed service. Publishes activity events to Kafka topic activity.logged. Reads activity history from PostgreSQL. ghcr.io/jibolaolu/activity-service.'},
+  {id:'txn-svc',    x:1110,y:80,  w:160,h:90, t:'nsvc', ic:'💸',lb:'transaction-service', sb:'Java 17 · Spring Boot',        ps:['CQRS','Kafka','JPA'],         tag:'Backend Service', d:'Core banking engine. Account management, fund transfers, transaction history. Publishes transaction.created to Kafka. Consumes events for CQRS read model. JPA → PostgreSQL. ghcr.io/jibolaolu/transaction-service.'},
+  {id:'finance-agent',x:1110,y:230,w:160,h:90,t:'nai',  ic:'🤖',lb:'finance-agent',       sb:'Python · LLM Agent',           ps:['Claude','OpenAI','SSE'],      tag:'AI Service',      d:'AI-powered financial assistant. Accepts natural language queries about accounts and transactions. Routes complex reasoning to Claude Opus, structured tasks to GPT-4o. Streams responses via SSE. Queries PostgreSQL for transaction context. ghcr.io/jibolaolu/finance-agent.'},
+  {id:'claude-api', x:1330,y:140, w:160,h:90, t:'nllm', ic:'🧠',lb:'Anthropic Claude',    sb:'claude-opus-5-5 / sonnet-5-5', ps:['Streaming','Reasoning'],      tag:'LLM Provider',   d:'Anthropic API. claude-opus-5-5 for deep financial reasoning and anomaly detection. claude-sonnet-5-5 for fast summaries. API key stored in K8s secret, injected as env var at runtime — never in source code.'},
+  {id:'openai-api', x:1330,y:280, w:160,h:90, t:'nllm', ic:'🧩',lb:'OpenAI',              sb:'GPT-4o · Whisper',             ps:['Structured','Voice'],         tag:'LLM Provider',   d:'OpenAI API. GPT-4o for structured financial data extraction, transaction categorisation, and report generation. Whisper for voice-to-text query transcription. API key from K8s secret.'},
+  {id:'kafka',      x:910, y:390, w:155,h:90, t:'ndat', ic:'📨',lb:'Kafka',               sb:'Event Streaming',              ps:['Topics','StatefulSet'],       tag:'Messaging',       d:'Apache Kafka StatefulSet in banking namespace. Topics: transaction.created, activity.logged, user.events. Producers: activity-service, transaction-service. Consumers: activity-service (audit trail) and transaction-service (CQRS).'},
+  {id:'postgres',   x:690, y:390, w:155,h:90, t:'ndat', ic:'🗄',lb:'PostgreSQL',          sb:'Primary Store',                ps:['Encrypted','PVC'],            tag:'Data Store',      d:'Primary relational database in banking namespace. Tables: users, accounts, transactions, activities, audit_logs. PersistentVolumeClaim on minikube. RDS Multi-AZ + AES-256 on EKS. 35-day backup retention.'},
+  {id:'redis',      x:690, y:540, w:155,h:90, t:'ndat', ic:'⚡',lb:'Redis',               sb:'Cache · Sessions · Rate Limit', ps:['TLS','StatefulSet'],         tag:'Data Store',      d:'Session cache (JWT/JWKS keys from Keycloak), rate limit counters, ephemeral state. StatefulSet + PVC in banking namespace. Transit encryption enabled. ElastiCache cluster mode on EKS.'},
+  {id:'gh-actions', x:40,  y:430, w:155,h:90, t:'nci',  ic:'⚙',lb:'GitHub Actions',      sb:'CI Pipeline · GHCR',           ps:['Build','Trivy','Cosign'],     tag:'CI/CD',           d:'Triggered on push to main/develop. Pipeline: Python tests + Java tests → Docker build → Trivy scan (SARIF to GitHub Security tab, non-blocking with continue-on-error: true) → push to ghcr.io/jibolaolu/ → cosign keyless signing.'},
+  {id:'argocd',     x:40,  y:580, w:155,h:90, t:'ngit', ic:'🔄',lb:'ArgoCD',              sb:'GitOps · Helm · Auto-sync',    ps:['Helm','Git watch'],           tag:'GitOps',          d:'argocd namespace. Watches k8s/helm/techbleat-bank in GitHub repo. Auto-syncs entire Helm chart to cluster on every commit to main. UI: http://localhost:8088 (port-forward). Password: in argocd-initial-admin-secret.'},
+  {id:'istiod',     x:220, y:430, w:155,h:90, t:'nmesh',ic:'🕸',lb:'istiod',              sb:'Mesh Control Plane',           ps:['mTLS','AuthzPolicy','Envoy'], tag:'Service Mesh',    d:'Istio control plane in istio-system namespace. Manages Envoy sidecar proxies injected into all banking pods. Enforces STRICT PeerAuthentication (mTLS). AuthorizationPolicies define which services may talk to which.'},
+  {id:'dd-agent',   x:220, y:580, w:155,h:90, t:'nobs', ic:'📊',lb:'Datadog Agent',       sb:'DaemonSet · 3/3 Running',      ps:['Logs','APM','Metrics'],       tag:'Observability',   d:'Datadog node agent DaemonSet. containerCollectAll: true captures all pod logs. DD_HOSTNAME from spec.nodeName fieldRef (minikube hostname fix). kubelet.tlsVerify: false. APM traces via Istio sidecars. Site: app.datadoghq.eu.'},
+  {id:'otel',       x:450, y:430, w:155,h:90, t:'nobs', ic:'🔭',lb:'OTEL Collector',      sb:'OpenTelemetry',                ps:['Traces','Spans','Metrics'],   tag:'Observability',   d:'OpenTelemetry collector. Receives distributed traces from Istio Envoy sidecar proxies and instrumented services. Exports to Datadog backend for end-to-end request trace visualisation across all services.'},
+];
+
+const EDGES=[
+  {f:'browser',      t:'cf-edge',      lb:'HTTPS'},
+  {f:'mobile',       t:'cf-edge',      lb:'HTTPS'},
+  {f:'cf-edge',      t:'cloudflared',  lb:'Zero Trust Tunnel'},
+  {f:'cloudflared',  t:'istio-gw',     lb:'HTTP/HTTPS'},
+  {f:'istio-gw',     t:'frontend',     lb:'techbleat-bank.local'},
+  {f:'istio-gw',     t:'keycloak',     lb:'keycloak.local'},
+  {f:'frontend',     t:'keycloak',     lb:'PKCE / JWT'},
+  {f:'frontend',     t:'user-svc',     lb:''},
+  {f:'frontend',     t:'activity-svc', lb:''},
+  {f:'frontend',     t:'txn-svc',      lb:''},
+  {f:'frontend',     t:'finance-agent',lb:''},
+  {f:'user-svc',     t:'postgres',     lb:''},
+  {f:'user-svc',     t:'redis',        lb:'Session'},
+  {f:'activity-svc', t:'postgres',     lb:''},
+  {f:'activity-svc', t:'kafka',        lb:'Publish'},
+  {f:'txn-svc',      t:'postgres',     lb:''},
+  {f:'txn-svc',      t:'kafka',        lb:'Events'},
+  {f:'finance-agent',t:'postgres',     lb:'Query'},
+  {f:'finance-agent',t:'claude-api',   lb:'claude-opus/sonnet'},
+  {f:'finance-agent',t:'openai-api',   lb:'GPT-4o'},
+  {f:'gh-actions',   t:'argocd',       lb:'Webhook'},
+  {f:'argocd',       t:'frontend',     lb:'Helm sync'},
+  {f:'istiod',       t:'istio-gw',     lb:'Config'},
+  {f:'dd-agent',     t:'otel',         lb:'Telemetry'},
+];
+
+const NS=[
+  {x:428,y:48, w:885,h:625,lb:'namespace: banking'},
+  {x:18, y:395,w:620,h:315,lb:'platform · ops'},
+];
+
+let sc=0.82,tx=30,ty=20,drag=false,lx=0,ly=0;
+const wrap=document.getElementById('wrap'),cv=document.getElementById('cv'),svgl=document.getElementById('svgl'),tip=document.getElementById('tip');
+
+let cW=0,cH=0;
+NODES.forEach(n=>{cW=Math.max(cW,n.x+n.w+60);cH=Math.max(cH,n.y+n.h+60)});
+cv.style.width=cW+'px';cv.style.height=cH+'px';
+svgl.setAttribute('width',cW);svgl.setAttribute('height',cH);
+
+NS.forEach(b=>{
+  const d=document.createElement('div');
+  d.className='ns-box';d.style.cssText=`left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px`;
+  cv.appendChild(d);
+  const l=document.createElement('div');
+  l.className='ns-lbl';l.style.cssText=`left:${b.x+10}px;top:${b.y+6}px`;l.textContent=b.lb;
+  cv.appendChild(l);
+});
+
+NODES.forEach(n=>{
+  const el=document.createElement('div');
+  el.className=`node ${n.t}`;
+  el.style.cssText=`left:${n.x}px;top:${n.y}px;width:${n.w}px;min-height:${n.h}px`;
+  el.innerHTML=`<div class="n-in"><div class="n-ic">${n.ic}</div><div class="n-lb">${n.lb}</div><div class="n-sb">${n.sb}</div><div class="n-ps">${n.ps.map(p=>`<span class="n-p">${p}</span>`).join('')}</div></div>`;
+  el.addEventListener('mouseenter',e=>showT(n,e));
+  el.addEventListener('mousemove',e=>moveT(e));
+  el.addEventListener('mouseleave',hideT);
+  cv.appendChild(el);
+});
+
+function nc(id){const n=NODES.find(x=>x.id===id);return{x:n.x+n.w/2,y:n.y+n.h/2}}
+function drawE(){
+  svgl.innerHTML=`<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="rgba(100,116,139,.5)"/></marker></defs>`;
+  EDGES.forEach(e=>{
+    const a=nc(e.f),b=nc(e.t);
+    const mx=(a.x+b.x)/2,my=(a.y+b.y)/2,dx=b.x-a.x,dy=b.y-a.y;
+    const cx=mx+dy*.15,cy=my-dx*.15;
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',`M${a.x},${a.y} Q${cx},${cy} ${b.x},${b.y}`);
+    p.setAttribute('stroke','rgba(100,116,139,.28)');p.setAttribute('stroke-width','1.5');
+    p.setAttribute('fill','none');p.setAttribute('marker-end','url(#ar)');
+    svgl.appendChild(p);
+    if(e.lb){
+      const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x',cx);t.setAttribute('y',cy-5);t.setAttribute('text-anchor','middle');
+      t.setAttribute('font-size','9');t.setAttribute('font-family','JetBrains Mono,monospace');
+      t.setAttribute('fill','rgba(100,116,139,.6)');t.textContent=e.lb;svgl.appendChild(t);
+    }
+  });
+}
+drawE();
+
+function applyT(){cv.style.transform=`translate(${tx}px,${ty}px) scale(${sc})`;document.getElementById('zl').textContent=Math.round(sc*100)+'%'}
+wrap.addEventListener('mousedown',e=>{drag=true;lx=e.clientX;ly=e.clientY;wrap.classList.add('dr')});
+window.addEventListener('mousemove',e=>{if(!drag)return;tx+=e.clientX-lx;ty+=e.clientY-ly;lx=e.clientX;ly=e.clientY;applyT()});
+window.addEventListener('mouseup',()=>{drag=false;wrap.classList.remove('dr')});
+wrap.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const d=e.deltaY>0?-.07:.07,r=wrap.getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top,p=sc;
+  sc=Math.min(2,Math.max(0.2,sc+d));
+  tx=mx-(mx-tx)*(sc/p);ty=my-(my-ty)*(sc/p);applyT();
+},{passive:false});
+function doZoom(d){sc=Math.min(2,Math.max(0.2,sc+d));applyT()}
+function doReset(){sc=0.82;tx=30;ty=20;applyT()}
+applyT();
+
+function showT(n,e){
+  document.getElementById('t-tl').textContent=n.lb;
+  const tg=document.getElementById('t-tg');tg.textContent=n.tag;
+  const c=TC[n.tag]||'#64748b';tg.style.cssText=`background:${c}22;color:${c};border:1px solid ${c}55`;
+  document.getElementById('t-bd').textContent=n.d;moveT(e);tip.classList.add('show');
+}
+function moveT(e){
+  let x=e.clientX+16,y=e.clientY+16;
+  if(x+280>window.innerWidth)x=e.clientX-280;
+  if(y+160>window.innerHeight)y=e.clientY-160;
+  tip.style.left=x+'px';tip.style.top=y+'px';
+}
+function hideT(){tip.classList.remove('show')}
+</script>
+</body>
+</html>

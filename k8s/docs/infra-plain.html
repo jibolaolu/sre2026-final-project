@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Techbleat Bank · Architecture Overview</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #f8fafc;
+  --bg2: #f1f5f9;
+  --bdr: #e2e8f0;
+  --txt: #0f172a;
+  --muted: #64748b;
+  --blue: #2563eb;
+  --purple: #7c3aed;
+  --pink: #db2777;
+  --teal: #0d9488;
+  --green: #16a34a;
+  --amber: #d97706;
+  --orange: #ea580c;
+  --cyan: #0891b2;
+  --indigo: #4338ca;
+  --slate: #475569;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f172a; --bg2: #1e293b; --bdr: #334155;
+    --txt: #f1f5f9; --muted: #94a3b8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f172a; --bg2: #1e293b; --bdr: #334155;
+  --txt: #f1f5f9; --muted: #94a3b8;
+  color-scheme: dark;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--txt);
+  padding: 0 0 40px;
+}
+
+/* Page header */
+.page-header {
+  background: var(--bg);
+  border-bottom: 1px solid var(--bdr);
+  padding: 20px 32px 16px;
+  position: sticky; top:0; z-index:50;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.page-title { font-size: 16px; font-weight: 700; color: var(--txt); letter-spacing: -.3px; }
+.page-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.badge { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: 4px; }
+
+/* Layer swim-lane */
+.layer {
+  margin: 20px 32px 0;
+  border: 1px solid var(--bdr);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.layer-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--bdr);
+}
+.layer-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.layer-name { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; }
+.layer-desc { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+.layer-body {
+  padding: 16px;
+  display: flex; flex-wrap: wrap; gap: 12px;
+  align-items: flex-start;
+}
+
+/* Service card */
+.card {
+  border: 1px solid var(--bdr);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--bg);
+  min-width: 160px;
+  flex: 0 0 auto;
+  position: relative;
+}
+.card-icon { font-size: 16px; margin-bottom: 5px; }
+.card-name { font-size: 12px; font-weight: 700; margin-bottom: 1px; }
+.card-sub { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-bottom: 8px; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag { font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: .3px; background: var(--bg2); color: var(--muted); }
+
+/* Color accent bars on cards */
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: 10px 10px 0 0;
+  background: var(--accent, var(--bdr));
+}
+
+/* Flow arrows between layers */
+.flow-arrow {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 6px 32px;
+  font-size: 11px; color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.flow-line {
+  flex: 1; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--bdr) 30%, var(--bdr) 70%, transparent);
+}
+.flow-label {
+  font-size: 10px; color: var(--muted);
+  background: var(--bg2); border: 1px solid var(--bdr);
+  padding: 2px 8px; border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* Namespace label */
+.ns-chip {
+  font-size: 10px; font-weight: 500; color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--bg2); border: 1px solid var(--bdr);
+  padding: 2px 8px; border-radius: 4px;
+  margin-left: auto; flex-shrink: 0;
+}
+
+/* Legend */
+.legend-section {
+  margin: 28px 32px 0;
+  padding: 16px;
+  background: var(--bg2);
+  border: 1px solid var(--bdr);
+  border-radius: 12px;
+}
+.legend-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin-bottom: 12px; }
+.legend-grid { display: flex; flex-wrap: wrap; gap: 10px 24px; }
+.legend-item { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+/* data flow note */
+.flow-note {
+  margin: 24px 32px 0;
+  padding: 14px 18px;
+  background: var(--bg2);
+  border: 1px solid var(--bdr);
+  border-left: 3px solid var(--blue);
+  border-radius: 8px;
+  font-size: 12px; color: var(--muted); line-height: 1.7;
+}
+.flow-note strong { color: var(--txt); }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="page-title">Techbleat Global Bank — Architecture Overview</div>
+    <div class="page-subtitle">Kubernetes · Istio · GitOps · Observability · AI</div>
+  </div>
+  <span class="badge" style="background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd">minikube (local) · EKS (production)</span>
+</div>
+
+<!-- Flow note -->
+<div class="flow-note">
+  <strong>Request path:</strong> Browser/Client → Cloudflare Edge (WAF + DDoS) → cloudflared tunnel (no public IP) → Istio IngressGateway → Frontend → Backend Services → Data layer. All inter-service traffic is mTLS via Istio Envoy sidecars. Auth at every step via Keycloak JWT.
+</div>
+
+<!-- LAYER 1: External Clients -->
+<div class="layer" style="margin-top:24px">
+  <div class="layer-header">
+    <div class="layer-dot" style="background:#2563eb"></div>
+    <span class="layer-name" style="color:#2563eb">External Clients</span>
+    <span class="layer-desc">Users and API consumers</span>
+  </div>
+  <div class="layer-body">
+    <div class="card" style="--accent:#2563eb">
+      <div class="card-icon">🌐</div>
+      <div class="card-name" style="color:#2563eb">Web Browser</div>
+      <div class="card-sub">React SPA</div>
+      <div class="card-tags"><span class="tag">HTTPS</span><span class="tag">JWT</span></div>
+    </div>
+    <div class="card" style="--accent:#2563eb">
+      <div class="card-icon">📱</div>
+      <div class="card-name" style="color:#2563eb">API Client</div>
+      <div class="card-sub">REST Consumer</div>
+      <div class="card-tags"><span class="tag">Bearer JWT</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow"><div class="flow-line"></div><div class="flow-label">↓ HTTPS to Cloudflare Edge</div><div class="flow-line"></div></div>
+
+<!-- LAYER 2: Edge Security -->
+<div class="layer">
+  <div class="layer-header">
+    <div class="layer-dot" style="background:#d97706"></div>
+    <span class="layer-name" style="color:#d97706">Edge Security</span>
+    <span class="layer-desc">Cloudflare Zero Trust — no public IP on cluster</span>
+  </div>
+  <div class="layer-body">
+    <div class="card" style="--accent:#d97706">
+      <div class="card-icon">🛡</div>
+      <div class="card-name" style="color:#d97706">Cloudflare Edge</div>
+      <div class="card-sub">WAF · DDoS · Zero Trust</div>
+      <div class="card-tags"><span class="tag">WAF</span><span class="tag">TLS 1.3</span><span class="tag">No pub IP</span></div>
+    </div>
+    <div class="card" style="--accent:#ea580c">
+      <div class="card-icon">🔗</div>
+      <div class="card-name" style="color:#ea580c">cloudflared</div>
+      <div class="card-sub">Tunnel · 2 replicas · banking ns</div>
+      <div class="card-tags"><span class="tag">Outbound</span><span class="tag">QUIC</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow"><div class="flow-line"></div><div class="flow-label">↓ Tunnel to Istio IngressGateway</div><div class="flow-line"></div></div>
+
+<!-- LAYER 3: Service Mesh Ingress -->
+<div class="layer">
+  <div class="layer-header">
+    <div class="layer-dot" style="background:#7c3aed"></div>
+    <span class="layer-name" style="color:#7c3aed">Service Mesh · Ingress</span>
+    <span class="layer-desc">Istio Gateway + VirtualService routing</span>
+    <span class="ns-chip">istio-system + banking ns</span>
+  </div>
+  <div class="layer-body">
+    <div class="card" style="--accent:#7c3aed">
+      <div class="card-icon">⚓</div>
+      <div class="card-name" style="color:#7c3aed">Istio IngressGateway</div>
+      <div class="card-sub">L7 Routing · VirtualService</div>
+      <div class="card-tags"><span class="tag">Gateway CRD</span><span class="tag">NodePort</span></div>
+    </div>
+    <div class="card" style="--accent:#7c3aed">
+      <div class="card-icon">🕸</div>
+      <div class="card-name" style="color:#7c3aed">istiod</div>
+      <div class="card-sub">Control Plane · Envoy sidecars</div>
+      <div class="card-tags"><span class="tag">STRICT mTLS</span><span class="tag">AuthzPolicy</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow"><div class="flow-line"></div><div class="flow-label">↓ Routed to Frontend &amp; Auth · all traffic mTLS inside mesh</div><div class="flow-line"></div></div>
+
+<!-- LAYER 4: Auth + Frontend -->
+<div class="layer">
+  <div class="layer-header">
+    <div class="layer-dot" style="background:#db2777"></div>
+    <span class="layer-name" style="color:#db2777">Auth · Frontend</span>
+    <span class="layer-desc">Identity + React SPA</span>
+    <span class="ns-chip">namespace: banking</span>
+  </div>
+  <div class="layer-body">
+    <div class="card" style="--accent:#db2777">
+      <div class="card-icon">🔐</div>
+      <div class="card-name" style="color:#db2777">Keycloak</div>
+      <div class="card-sub">OIDC · OAuth 2.0 · Realm: banking</div>
+      <div class="card-tags"><span class="tag">JWT</span><span class="tag">RBAC</span><span class="tag">PKCE</span></div>
+    </div>
+    <div class="card" style="--accent:#3b82f6">
+      <div class="card-icon">🖥</div>
+      <div class="card-name" style="color:#3b82f6">Frontend</div>
+      <div class="card-sub">React + Vite · Nginx · SPA</div>
+      <div class="card-tags"><span class="tag">Keycloak JS</span><span class="tag">Bearer JWT</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow"><div class="flow-line"></div><div class="flow-label">↓ REST API calls with JWT · Istio mTLS between all pods</div><div class="flow-line"></div></div>
+
+<!-- LAYER 5: Backend Services -->
+<div class="layer">
+  <div class="layer-header">
+    <div class="layer-dot" style="background:#0d9488"></div>
+    <span class="layer-name" style="color:#0d9488">Backend Services</span>
+    <span class="layer-desc">Python FastAPI · Java Spring Boot · Python LLM Agent</span>
+    <span class="ns-chip">namespace: banking</span>
+  </div>
+  <div class="layer-body">
+    <div class="card" style="--accent:#0d9488">
+      <div class="card-icon">👤</div>
+      <div class="card-name" style="color:#0d9488">user-service</div>
+      <div class="card-sub">Python · FastAPI</div>
+      <div class="card-tags"><span class="tag">JWT Guard</span><span class="tag">PostgreSQL</span><span class="tag">Redis</span></div>
+    </div>
+    <div class="card" style="--accent:#0d9488">
+      <div class="card-icon">📋</div>
+      <div class="card-name" style="color:#0d9488">activity-service</div>
+      <div class="card-sub">Python · FastAPI</div>
+      <div class="card-tags"><span class="tag">Kafka</span><span class="tag">PostgreSQL</span></div>
+    </div>
+    <div class="card" style="--accent:#0d9488">
+      <div class="card-icon">💸</div>
+      <div class="card-name" style="color:#0d9488">transaction-service</div>
+      <div class="card-sub">Java 17 · Spring Boot</div>
+      <div class="card-tags"><span class="tag">CQRS</span><span class="tag">Kafka</span><span class="tag">JPA</span></div>
+    </div>
+    <div class="card" style="--accent:#16a34a">
+      <div class="card-icon">🤖</div>
+      <div class="card-name" style="color:#16a34a">finance-agent</div>
+      <div class="card-sub">Python · LLM Agent</div>
+      <div class="card-tags"><span class="tag">Claude</span><span class="tag">OpenAI</span><span class="tag">SSE</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-arrow"><div class="flow-line"></div><div class="flow-label">↓ Reads / writes to data layer · AI calls to external LLMs · events to Kafka</div><div class="flow-line"></div></div>
+
+<!-- LAYER 6: Data + Messaging + AI -->
+<div class="layer">
+  <div class="layer-header">
+    <div class="layer-dot" style="background:#d97706"></div>
+    <span class="layer-name" style="color:#d97706">Data · Messaging · AI APIs</span>
+    <span class="layer-desc">PostgreSQL · Redis · Kafka · Anthropic · OpenAI</span>
+    <span class="ns-chip">namespace: banking + external APIs</span>
+  </div>
+  <div class="layer-body">
+    <div class="card" style="--accent:#d97706">
+      <div class="card-icon">🗄</div>
+      <div class="card-name" style="color:#d97706">PostgreSQL</div>
+      <div class="card-sub">Primary Store · PVC</div>
+      <div class="card-tags"><span class="tag">Encrypted</span><span class="tag">35-day backup</span></div>
+    </div>
+    <div class="card" style="--accent:#d97706">
+      <div class="card-icon">⚡</div>
+      <div class="card-name" style="color:#d97706">Redis</div>
+      <div class="card-sub">Cache · Sessions · Rate Limit</div>
+      <div class="card-tags"><span class="tag">TLS</span><span class="tag">StatefulSet</span></div>
+    </div>
+    <div class="card" style="--accent:#d97706">
+      <div class="card-icon">📨</div>
+      <div class="card-name" style="color:#d97706">Kafka</div>
+      <div class="card-sub">Event Streaming · StatefulSet</div>
+      <div class="card-tags"><span class="tag">3 topics</span><span class="tag">Consumer groups</span></div>
+    </div>
+    <div class="card" style="--accent:#16a34a">
+      <div class="card-icon">🧠</div>
+      <div class="card-name" style="color:#16a34a">Anthropic Claude</div>
+      <div class="card-sub">claude-opus-5-5 / sonnet-5-5</div>
+      <div class="card-tags"><span class="tag">External API</span><span class="tag">K8s secret</span></div>
+    </div>
+    <div class="card" style="--accent:#16a34a">
+      <div class="card-icon">🧩</div>
+      <div class="card-name" style="color:#16a34a">OpenAI</div>
+      <div class="card-sub">GPT-4o · Whisper</div>
+      <div class="card-tags"><span class="tag">External API</span><span class="tag">K8s secret</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- LAYER 7: Platform / Ops -->
+<div class="layer" style="margin-top:20px">
+  <div class="layer-header">
+    <div class="layer-dot" style="background:#475569"></div>
+    <span class="layer-name" style="color:#475569">Platform · CI/CD · Observability</span>
+    <span class="layer-desc">GitHub Actions · ArgoCD · Datadog · OTEL</span>
+  </div>
+  <div class="layer-body">
+    <div class="card" style="--accent:#475569">
+      <div class="card-icon">⚙</div>
+      <div class="card-name" style="color:#475569">GitHub Actions</div>
+      <div class="card-sub">CI · GHCR · Cosign</div>
+      <div class="card-tags"><span class="tag">Build</span><span class="tag">Trivy Scan</span><span class="tag">SARIF</span></div>
+    </div>
+    <div class="card" style="--accent:#4338ca">
+      <div class="card-icon">🔄</div>
+      <div class="card-name" style="color:#4338ca">ArgoCD</div>
+      <div class="card-sub">GitOps · Helm · Auto-sync</div>
+      <div class="card-tags"><span class="tag">argocd ns</span><span class="tag">Port 8088</span></div>
+    </div>
+    <div class="card" style="--accent:#0891b2">
+      <div class="card-icon">📊</div>
+      <div class="card-name" style="color:#0891b2">Datadog Agent</div>
+      <div class="card-sub">DaemonSet · 3/3 Running</div>
+      <div class="card-tags"><span class="tag">Logs</span><span class="tag">APM</span><span class="tag">datadoghq.eu</span></div>
+    </div>
+    <div class="card" style="--accent:#0891b2">
+      <div class="card-icon">🔭</div>
+      <div class="card-name" style="color:#0891b2">OTEL Collector</div>
+      <div class="card-sub">OpenTelemetry · Traces</div>
+      <div class="card-tags"><span class="tag">Spans</span><span class="tag">Istio sidecars</span></div>
+    </div>
+    <div class="card" style="--accent:#0891b2">
+      <div class="card-icon">🔍</div>
+      <div class="card-name" style="color:#0891b2">DD Cluster Agent</div>
+      <div class="card-sub">K8s Events · Orchestrator</div>
+      <div class="card-tags"><span class="tag">1/1 Running</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Legend -->
+<div class="legend-section">
+  <div class="legend-title">Infrastructure Legend</div>
+  <div class="legend-grid">
+    <div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div>External Clients</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#d97706"></div>Edge Security / Cloudflare</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ea580c"></div>Cluster Ingress (cloudflared)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div>Service Mesh (Istio)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#db2777"></div>Auth / Identity (Keycloak)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#0d9488"></div>Backend Services</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#16a34a"></div>AI / LLM Services</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#d97706"></div>Data Layer (PG · Redis · Kafka)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#4338ca"></div>GitOps (ArgoCD)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#0891b2"></div>Observability (Datadog · OTEL)</div>
+  </div>
+</div>
+
+</body>
+</html>

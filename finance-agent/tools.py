@@ -14,10 +14,16 @@ tool_context cannot bypass authentication.
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Dict, Literal, Tuple
 from urllib.parse import quote
+
+# Max keyword length accepted by search_transactions to prevent log flooding.
+_MAX_KEYWORD_LEN = 200
+# Only printable ASCII / common Unicode — no control chars that poison log lines.
+_SAFE_TEXT_RE = re.compile(r'^[\x20-\x7E -￿]+$')
 
 import httpx
 from fastapi import HTTPException, status
@@ -194,9 +200,12 @@ def get_toolkit(context: Dict[str, Any] | None = None) -> Tuple[Dict[str, Callab
         if keyword is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                                 detail="keyword is required")
-        keyword = keyword.strip()
+        keyword = keyword.strip()[:_MAX_KEYWORD_LEN]
         if not keyword:
             return {"currency": "GBP", "count": 0, "matches": []}
+        if not _SAFE_TEXT_RE.match(keyword):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail="keyword contains invalid characters")
 
         _, txns = _fetch(ctx, "transactions")
         if not isinstance(txns, list):

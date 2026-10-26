@@ -18,6 +18,37 @@ spec:
       labels:
         {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: kafka
+      annotations:
+        # Datadog autodiscovery — Kafka broker metrics + consumer group lag.
+        # consumer_groups monitors the three app topics for lag on each consumer group.
+        ad.datadoghq.com/kafka.checks: |
+          {
+            "kafka": {
+              "init_config": {"is_jmx": true, "collect_default_metrics": true},
+              "instances": [
+                {
+                  "host": "%%host%%",
+                  "port": 9999,
+                  "tags": ["kafka_cluster:techbleat-bank"]
+                }
+              ]
+            },
+            "kafka_consumer": {
+              "init_config": {},
+              "instances": [
+                {
+                  "kafka_connect_str": "%%host%%:29092",
+                  "consumer_groups": {
+                    "banking-activity-group": {
+                      "txn.events": [],
+                      "user.events": [],
+                      "notifications": []
+                    }
+                  }
+                }
+              ]
+            }
+          }
     spec:
       serviceAccountName: kafka
       enableServiceLinks: false

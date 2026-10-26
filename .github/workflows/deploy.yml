@@ -6,15 +6,16 @@ on:
       environment:
         description: "Target environment"
         required: true
-        default: local-kind
+        default: local-minikube
         type: choice
-        options: [local-kind, eks-staging, eks-production]
+        options: [local-minikube, local-kind, eks-staging, eks-production]
       image_tag:
-        description: "Image tag to deploy (defaults to SHA of latest main commit)"
+        description: "Image tag to deploy (defaults to git short SHA)"
         required: false
         default: ""
 
-  # Auto-deploy to local-kind on every main merge (optional — remove if not desired)
+  # Auto-deploy to local-minikube on every main merge via the self-hosted runner.
+  # Requires the runner service to be running (see k8s/scripts/setup-github-runner.sh).
   # push:
   #   branches: [main]
 
@@ -25,19 +26,45 @@ env:
   NAMESPACE: banking
   RELEASE: techbleat-bank
 
+# ── Job 1: pick the right runner ──────────────────────────────────────────────
+# local-minikube → self-hosted runner on THIS machine (has kubectl/helm/minikube)
+# all others     → GitHub-hosted ubuntu-latest
 jobs:
-  deploy:
-    name: Deploy to ${{ inputs.environment || 'local-kind' }}
+  determine-runner:
+    name: Select runner
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || 'local-kind' }}
+    outputs:
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      - name: Pick runner labels
+        id: pick
+        run: |
+          ENV="${{ inputs.environment || 'local-minikube' }}"
+          if [[ "$ENV" == "local-minikube" ]]; then
+            echo 'runner=["self-hosted","linux","local-minikube"]' >> "$GITHUB_OUTPUT"
+            echo "→ Self-hosted runner (local minikube)"
+          else
+            echo 'runner=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            echo "→ GitHub-hosted runner"
+          fi
+
+# ── Job 2: deploy ─────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to ${{ inputs.environment || 'local-minikube' }}
+    needs: determine-runner
+    runs-on: ${{ fromJSON(needs.determine-runner.outputs.runner) }}
+    environment: ${{ inputs.environment || 'local-minikube' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - uses: azure/setup-helm@v4
-        with:
-          version: "3.16.0"
+      - name: Install helm (if not present)
+        run: |
+          if ! command -v helm &>/dev/null; then
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          fi
+          helm version
 
       - name: Resolve image tag
         id: tag
@@ -49,16 +76,55 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Deploying tag: $TAG"
 
-      # ── local-kind: spin up kind, load images, helm deploy ────────────────
+      # ── local-minikube (self-hosted runner on your WSL2 machine) ─────────────
+      # The runner already has kubectl, helm, and kubeconfig for your minikube cluster.
+      # Images are pulled from Docker Hub with imagePullPolicy=Always.
+      - name: Verify minikube cluster (local-minikube)
+        if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
+        run: |
+          kubectl config use-context techbleat-bank 2>/dev/null \
+            || kubectl config use-context $(kubectl config current-context)
+          echo "Active context: $(kubectl config current-context)"
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Helm deploy (local-minikube)
+        if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          helm upgrade --install ${{ env.RELEASE }} ${{ env.HELM_CHART }} \
+            --namespace ${{ env.NAMESPACE }} \
+            -f ${{ env.HELM_CHART }}/values.yaml \
+            -f ${{ env.HELM_CHART }}/values-local.yaml \
+            --set global.imageRegistry="docker.io/${{ env.IMAGE_PREFIX }}/" \
+            --set global.imagePullPolicy=Always \
+            --set userService.image.tag="${TAG}" \
+            --set transactionService.image.tag="${TAG}" \
+            --set activityService.image.tag="${TAG}" \
+            --set financeAgent.image.tag="${TAG}" \
+            --set frontend.image.tag="${TAG}" \
+            --set secrets.postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
+            --set secrets.keycloakAdminPassword="${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" \
+            --set secrets.keycloakAdminClientSecret="${{ secrets.KEYCLOAK_ADMIN_CLIENT_SECRET }}" \
+            --set secrets.transactionServiceKcSecret="${{ secrets.TRANSACTION_SERVICE_KC_SECRET }}" \
+            --set secrets.activityServiceKcSecret="${{ secrets.ACTIVITY_SERVICE_KC_SECRET }}" \
+            --set secrets.financeAgentKcSecret="${{ secrets.FINANCE_AGENT_KC_SECRET }}" \
+            --set secrets.openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
+            --set secrets.anthropicApiKey="${{ secrets.ANTHROPIC_API_KEY }}" \
+            --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}" \
+            --wait --timeout 15m
+
+      # ── local-kind: spin up a kind cluster in the GitHub-hosted runner ───────
       - name: Setup kind cluster
-        if: ${{ inputs.environment == 'local-kind' || inputs.environment == '' }}
+        if: ${{ inputs.environment == 'local-kind' }}
         uses: helm/kind-action@v1
         with:
           config: k8s/scripts/kind-config.yaml
           cluster_name: techbleat-bank
 
       - name: Install NGINX ingress (kind)
-        if: ${{ inputs.environment == 'local-kind' || inputs.environment == '' }}
+        if: ${{ inputs.environment == 'local-kind' }}
         run: |
           kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/kind/deploy.yaml
           kubectl wait --namespace ingress-nginx \
@@ -67,7 +133,7 @@ jobs:
             --timeout=90s
 
       - name: Pull and load images into kind
-        if: ${{ inputs.environment == 'local-kind' || inputs.environment == '' }}
+        if: ${{ inputs.environment == 'local-kind' }}
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           for SVC in user-service transaction-service activity-service finance-agent frontend; do
@@ -77,7 +143,7 @@ jobs:
           done
 
       - name: Helm deploy (local-kind)
-        if: ${{ inputs.environment == 'local-kind' || inputs.environment == '' }}
+        if: ${{ inputs.environment == 'local-kind' }}
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
@@ -95,6 +161,12 @@ jobs:
             --set secrets.postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
             --set secrets.keycloakAdminPassword="${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" \
             --set secrets.keycloakAdminClientSecret="${{ secrets.KEYCLOAK_ADMIN_CLIENT_SECRET }}" \
+            --set secrets.transactionServiceKcSecret="${{ secrets.TRANSACTION_SERVICE_KC_SECRET }}" \
+            --set secrets.activityServiceKcSecret="${{ secrets.ACTIVITY_SERVICE_KC_SECRET }}" \
+            --set secrets.financeAgentKcSecret="${{ secrets.FINANCE_AGENT_KC_SECRET }}" \
+            --set secrets.openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
+            --set secrets.anthropicApiKey="${{ secrets.ANTHROPIC_API_KEY }}" \
+            --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}" \
             --wait --timeout 15m
 
       # ── EKS staging / production ──────────────────────────────────────────
@@ -131,8 +203,15 @@ jobs:
             --set secrets.postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
             --set secrets.keycloakAdminPassword="${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}" \
             --set secrets.keycloakAdminClientSecret="${{ secrets.KEYCLOAK_ADMIN_CLIENT_SECRET }}" \
+            --set secrets.transactionServiceKcSecret="${{ secrets.TRANSACTION_SERVICE_KC_SECRET }}" \
+            --set secrets.activityServiceKcSecret="${{ secrets.ACTIVITY_SERVICE_KC_SECRET }}" \
+            --set secrets.financeAgentKcSecret="${{ secrets.FINANCE_AGENT_KC_SECRET }}" \
+            --set secrets.openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
+            --set secrets.anthropicApiKey="${{ secrets.ANTHROPIC_API_KEY }}" \
+            --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}" \
             --wait --timeout 20m
 
+      # ── Verify (all environments) ──────────────────────────────────────────
       - name: Verify deployment
         run: |
           kubectl get pods -n ${{ env.NAMESPACE }}

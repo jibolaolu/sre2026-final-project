@@ -49,7 +49,7 @@ class UserCreate(BaseModel):
     id: str = Field(min_length=3, max_length=100, pattern=r"^[a-zA-Z0-9._-]+$")
     full_name: str = Field(min_length=2, max_length=255)
     email: EmailStr
-    password: SecretStr = Field(min_length=3, max_length=128)
+    password: SecretStr = Field(min_length=12, max_length=128)
 
 
 @app.get("/health")

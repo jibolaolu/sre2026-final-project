@@ -18,6 +18,25 @@ spec:
       labels:
         {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: redis
+      annotations:
+        # Datadog autodiscovery — collects Redis metrics and consumer-connection stats.
+        # %%env_REDIS_PASSWORD%% resolves to the REDIS_PASSWORD env var at runtime;
+        # when the var is empty (no-auth setup) the check still connects without auth.
+        ad.datadoghq.com/redis.checks: |
+          {
+            "redisdb": {
+              "init_config": {},
+              "instances": [
+                {
+                  "host": "%%host%%",
+                  "port": 6379
+                  {{- if .Values.secrets.redisPassword }},
+                  "password": "%%env_REDIS_PASSWORD%%"
+                  {{- end }}
+                }
+              ]
+            }
+          }
     spec:
       serviceAccountName: redis
       securityContext:
@@ -28,20 +47,70 @@ spec:
         - name: redis
           image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          # AOF (Append-Only File) persistence: every write is fsync'd per second.
+          # This survives pod restarts without losing more than ~1 s of session data.
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            {{- if .Values.secrets.redisPassword }}
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            {{- end }}
           ports:
             - name: redis
               containerPort: 6379
               protocol: TCP
+          {{- if .Values.secrets.redisPassword }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: redis-password
+          {{- end }}
           resources:
             {{- toYaml .Values.redis.resources | nindent 12 }}
           livenessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command:
+                {{- if .Values.secrets.redisPassword }}
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" ping
+                {{- else }}
+                - redis-cli
+                - ping
+                {{- end }}
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command:
+                {{- if .Values.secrets.redisPassword }}
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" ping
+                {{- else }}
+                - redis-cli
+                - ping
+                {{- end }}
             initialDelaySeconds: 5
             periodSeconds: 5
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+  {{- if .Values.redis.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.persistence.size }}
+  {{- end }}
