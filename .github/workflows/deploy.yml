@@ -128,8 +128,7 @@ jobs:
             --set secrets.financeAgentKcSecret="${{ secrets.FINANCE_AGENT_KC_SECRET }}" \
             --set secrets.openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
             --set secrets.anthropicApiKey="${{ secrets.ANTHROPIC_API_KEY }}" \
-            --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}" \
-            --wait --timeout 10m
+            --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}"
 
       # ── local-kind: spin up a kind cluster in the GitHub-hosted runner ───────
       - name: Setup kind cluster
