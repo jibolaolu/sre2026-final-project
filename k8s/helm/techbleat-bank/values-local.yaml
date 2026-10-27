@@ -71,7 +71,7 @@ transactionService:
   autoscaling:
     enabled: false
   env:
-    springDatasourceUrl: "jdbc:postgresql://postgres:5432/bankingdb"
+    springDatasourceUrl: "jdbc:postgresql://postgres:5432/bankingdb?sslmode=disable"
     keycloakJwkSetUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
 
 activityService:
