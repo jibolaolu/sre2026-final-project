@@ -33,7 +33,7 @@ tls:
 # See k8s/helm/techbleat-bank/templates/secrets/app-secrets.yaml for details.
 secrets:
   postgresPassword: "changeme"
-  keycloakAdminPassword: "changeme"
+  keycloakAdminPassword: "admin"   # local dev default; override via --set or GitHub secret
   keycloakAdminClientSecret: "changeme"
   transactionServiceKcSecret: "changeme"
   activityServiceKcSecret: "changeme"
