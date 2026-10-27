@@ -92,10 +92,14 @@ jobs:
             techbleat-global-bank-backend/activity-service/ --profile techbleat-bank
           minikube image build -t "${REGISTRY}/finance-agent:${TAG}" \
             finance-agent/ --profile techbleat-bank
-          minikube image build -t "${REGISTRY}/frontend:${TAG}" \
-            techbleat-global-bank-frontend/ \
+          minikube image build \
+            --profile techbleat-bank \
+            -t "${REGISTRY}/frontend:${TAG}" \
             -f techbleat-global-bank-frontend/dockerfile \
-            --profile techbleat-bank
+            --build-arg VITE_KEYCLOAK_URL=http://keycloak.techbleat-bank.local \
+            --build-arg VITE_KEYCLOAK_REALM=banking \
+            --build-arg VITE_KEYCLOAK_CLIENT_ID=banking-frontend \
+            techbleat-global-bank-frontend/
 
       # Reset the Helm release if it is in a failed state (e.g. from a prior
       # --atomic rollback that itself failed due to immutable StatefulSet fields).
