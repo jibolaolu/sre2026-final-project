@@ -83,15 +83,15 @@ spec:
         ports: ["8080"]
 
 ---
-# ── Pod-to-pod ALLOW rules ────────────────────────────────────────────────────
-# Frontend JS calls API services directly (Keycloak for auth, user/transaction/
-# activity/finance-agent for data). These rules allow that traffic through the
-# mesh when mTLS is available.
+# ── Ingress → API services ────────────────────────────────────────────────────
+# nginx ingress has no Istio sidecar so it presents no mTLS principal and its
+# namespace cannot be verified.  Port-only rules (no `from` block) allow the
+# ingress to reach each service regardless of the source principal.
 
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-frontend-user-service
+  name: allow-ingress-to-user-service
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
@@ -101,15 +101,15 @@ spec:
       app.kubernetes.io/component: user-service
   action: ALLOW
   rules:
-  - from:
-    - source:
-        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+  - to:
+    - operation:
+        ports: ["8000"]
 
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-frontend-transaction-service
+  name: allow-ingress-to-transaction-service
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
@@ -119,15 +119,15 @@ spec:
       app.kubernetes.io/component: transaction-service
   action: ALLOW
   rules:
-  - from:
-    - source:
-        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+  - to:
+    - operation:
+        ports: ["8080"]
 
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-frontend-activity-service
+  name: allow-ingress-to-activity-service
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
@@ -137,15 +137,15 @@ spec:
       app.kubernetes.io/component: activity-service
   action: ALLOW
   rules:
-  - from:
-    - source:
-        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+  - to:
+    - operation:
+        ports: ["8001"]
 
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-frontend-finance-agent
+  name: allow-ingress-to-finance-agent
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
@@ -155,9 +155,9 @@ spec:
       app.kubernetes.io/component: finance-agent
   action: ALLOW
   rules:
-  - from:
-    - source:
-        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+  - to:
+    - operation:
+        ports: ["8000"]
 
 ---
 apiVersion: security.istio.io/v1beta1

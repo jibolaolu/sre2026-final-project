@@ -23,7 +23,7 @@ metadata:
     app.kubernetes.io/component: cloudflared
     app.kubernetes.io/part-of: techbleat-bank
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: cloudflared

@@ -22,8 +22,8 @@ global:
   storageClass: standard     # kind default storage class
 
 # ── Public URLs (used by Keycloak KC_HOSTNAME and frontend build args) ──────
-publicFrontendUrl: "http://techbleat-bank.local"
-publicKeycloakUrl: "http://keycloak.techbleat-bank.local"
+publicFrontendUrl: "https://banking-app.eaglesoncloude.com"
+publicKeycloakUrl: "https://auth.eaglesoncloude.com"
 
 # ── Ingress ──────────────────────────────────────────────────────────────────
 ingress:
@@ -33,7 +33,7 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
-  tls: []    # No TLS for plain local; see tls.enabled=true for cert-manager
+  tls: []    # No TLS for plain local; Cloudflare terminates TLS at the edge
   hosts:
     - host: techbleat-bank.local
       paths:
@@ -41,8 +41,14 @@ ingress:
           pathType: Prefix
           service: frontend
           port: 80
-    # keycloak.techbleat-bank.local is handled by the dedicated keycloak ingress
-    # (techbleat-bank-keycloak) which sets proxy-buffer-size: 128k for large JWT headers.
+    - host: banking-app.eaglesoncloude.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+          port: 80
+    # keycloak.techbleat-bank.local and auth.eaglesoncloude.com are handled by the
+    # dedicated keycloak ingress (techbleat-bank-keycloak) via publicKeycloakUrl.
 
 # ── TLS — cert-manager self-signed (optional for local HTTPS) ───────────────
 tls:

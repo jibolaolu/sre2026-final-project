@@ -95,6 +95,9 @@ ANTHROPIC_API_KEY="$(printf '%s' "${ANTHROPIC_API_KEY:-}" | tr -d '\r')"
 POSTGRES_PASSWORD="$(printf '%s' "${POSTGRES_PASSWORD}" | tr -d '\r')"
 KEYCLOAK_ADMIN_PASSWORD="$(printf '%s' "${KEYCLOAK_ADMIN_PASSWORD}" | tr -d '\r')"
 KC_ADMIN_CLIENT_SECRET="$(printf '%s' "${KC_ADMIN_CLIENT_SECRET}" | tr -d '\r')"
+# Public-facing Keycloak URL baked into the frontend image at build time.
+# Set to https://auth.<your-domain> when using Cloudflare Tunnel; defaults to local.
+KEYCLOAK_PUBLIC_URL="$(printf '%s' "${KEYCLOAK_PUBLIC_URL:-http://keycloak.techbleat-bank.local}" | tr -d '\r')"
 
 # ── Registry: GHCR (recommended) or Docker Hub ───────────────────────────────
 # Set GITHUB_USERNAME in .env to push to ghcr.io/<username>/<service> (matches CI).
@@ -255,7 +258,7 @@ if [ "${SKIP_BUILD}" != "1" ]; then
 
   FRONTEND_IMAGE="${IMAGE_REGISTRY}frontend:${IMAGE_TAG}"
   docker build \
-    --build-arg VITE_KEYCLOAK_URL="http://keycloak.techbleat-bank.local" \
+    --build-arg VITE_KEYCLOAK_URL="${KEYCLOAK_PUBLIC_URL}" \
     --build-arg VITE_KEYCLOAK_REALM="banking" \
     --build-arg VITE_KEYCLOAK_CLIENT_ID="banking-frontend" \
     -t "${FRONTEND_IMAGE}" \
@@ -284,6 +287,28 @@ if [ "${HELM_STATUS}" = "pending-install" ] || [ "${HELM_STATUS}" = "pending-upg
   info "Clearing stuck Helm release (status: ${HELM_STATUS})..."
   kubectl delete secret -n "${NAMESPACE}" -l "owner=helm,name=${RELEASE}" --ignore-not-found 2>/dev/null || true
 fi
+
+# ── Adopt any kubectl-applied Istio resources into Helm ──────────────────────
+# Older versions of this script applied Istio policies via `kubectl apply -f k8s/istio/`
+# without Helm ownership labels. Helm upgrade refuses to manage resources it doesn't own.
+# This block stamps them idempotently so the upgrade proceeds cleanly on re-deploys.
+info "Adopting any existing Istio policies into Helm ownership..."
+for ap in $(kubectl get authorizationpolicy -n "${NAMESPACE}" \
+    -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true); do
+  kubectl label authorizationpolicy "$ap" -n "${NAMESPACE}" \
+    app.kubernetes.io/managed-by=Helm --overwrite 2>/dev/null || true
+  kubectl annotate authorizationpolicy "$ap" -n "${NAMESPACE}" \
+    meta.helm.sh/release-name="${RELEASE}" \
+    meta.helm.sh/release-namespace="${NAMESPACE}" --overwrite 2>/dev/null || true
+done
+if kubectl get peerauthentication default -n "${NAMESPACE}" >/dev/null 2>&1; then
+  kubectl label peerauthentication default -n "${NAMESPACE}" \
+    app.kubernetes.io/managed-by=Helm --overwrite 2>/dev/null || true
+  kubectl annotate peerauthentication default -n "${NAMESPACE}" \
+    meta.helm.sh/release-name="${RELEASE}" \
+    meta.helm.sh/release-namespace="${NAMESPACE}" --overwrite 2>/dev/null || true
+fi
+success "Istio policies adopted into Helm ownership."
 
 # ── Delete Kafka PVC so KRaft cluster metadata is always fresh ───────────────
 # Kafka writes its CLUSTER_ID into the PVC on first start. If the PVC survives
@@ -466,18 +491,11 @@ fi
 
 kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite
 
-info "Applying Istio mesh policies (PeerAuthentication, DestinationRules, AuthorizationPolicies, Gateway, VirtualServices)..."
-kubectl apply -f "${REPO_ROOT}/k8s/istio/peer-authentication.yaml" 2>/dev/null || \
-  warn "peer-authentication.yaml apply failed — verify Istio CRDs are ready"
-[ -d "${REPO_ROOT}/k8s/istio/destination-rules" ] && \
-  kubectl apply -f "${REPO_ROOT}/k8s/istio/destination-rules/" 2>/dev/null || true
-[ -d "${REPO_ROOT}/k8s/istio/authorization-policy" ] && \
-  kubectl apply -f "${REPO_ROOT}/k8s/istio/authorization-policy/" 2>/dev/null || true
-[ -f "${REPO_ROOT}/k8s/istio/gateway.yaml" ] && \
-  kubectl apply -f "${REPO_ROOT}/k8s/istio/gateway.yaml" 2>/dev/null || true
-[ -d "${REPO_ROOT}/k8s/istio/virtual-services" ] && \
-  kubectl apply -f "${REPO_ROOT}/k8s/istio/virtual-services/" 2>/dev/null || true
-success "Istio policies applied."
+# Istio policies (PeerAuthentication, AuthorizationPolicies) are now managed by the
+# Helm chart (templates/istio/istio-policies.yaml, gated by istio.enabled=true in
+# values-local.yaml). The adoption block above ensures Helm owns any existing resources.
+# Do NOT re-apply standalone k8s/istio/ files here — that would strip Helm ownership.
+info "Istio policies are managed by Helm (istio.enabled=true in values-local.yaml) — no separate apply needed."
 
 # ── Patch CoreDNS to resolve external AI API hosts from inside pods ───────────
 # minikube pods cannot reach 8.8.8.8 (UDP blocked); static hosts bypass forwarding.
@@ -610,7 +628,9 @@ fi
 # Routes public traffic through Cloudflare (WAF + DDoS protection) — no public IP required.
 # One-time setup: https://one.dash.cloudflare.com → Zero Trust → Access → Tunnels
 #   1. Create Tunnel → copy the token → add CLOUDFLARE_TUNNEL_TOKEN=<token> to .env
-#   2. Add Public Hostname: Domain → your domain, Service → http://istio-ingressgateway.istio-system
+#   2. Add Public Hostname: banking-app.<domain> → http://ingress-nginx-controller.ingress-nginx:80
+#   3. Add Public Hostname: auth.<domain>        → http://ingress-nginx-controller.ingress-nginx:80
+#   4. Set KEYCLOAK_PUBLIC_URL=https://auth.<domain> in .env so the frontend image is built with the right URL
 CLOUDFLARE_TUNNEL_TOKEN_CLEAN="$(printf '%s' "${CLOUDFLARE_TUNNEL_TOKEN:-}" | tr -d '\r')"
 if [ -n "${CLOUDFLARE_TUNNEL_TOKEN_CLEAN}" ]; then
   info "Deploying Cloudflare Tunnel (cloudflared)..."
@@ -654,6 +674,12 @@ printf '  Ingress port-forwards running: WSL=8080/8443, Windows=80/443.\n\n'
 printf '    Frontend  : http://techbleat-bank.local\n'
 printf '    Keycloak  : http://keycloak.techbleat-bank.local/admin\n'
 printf '    Demo user : bankingdemo / Demo@2024\n\n'
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN_CLEAN}" ]; then
+printf '  ── Cloudflare public access ────────────────────────────\n'
+printf '    Frontend  : https://banking-app.%s\n'  "${KEYCLOAK_PUBLIC_URL#*://auth.}"
+printf '    Keycloak  : %s/admin\n' "${KEYCLOAK_PUBLIC_URL}"
+printf '  (Routes must be configured in Cloudflare Zero Trust dashboard)\n\n'
+fi
 printf '  ── Observability ───────────────────────────────────────\n'
 printf '    Datadog    : https://app.%s\n' "${DD_SITE_CLEAN:-datadoghq.eu}"
 printf '                 (requires DD_API_KEY in .env)\n'
