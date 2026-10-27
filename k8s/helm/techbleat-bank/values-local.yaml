@@ -95,6 +95,13 @@ frontend:
   autoscaling:
     enabled: false
 
+# ── Istio ─────────────────────────────────────────────────────────────────────
+# minikube installs Istio by default; set false if you skipped istio addon.
+# PERMISSIVE is required: nginx ingress has no sidecar so cannot do mTLS.
+istio:
+  enabled: true
+  mtls: PERMISSIVE
+
 # ── Observability ─────────────────────────────────────────────────────────────
 observability:
   # 4317 = gRPC (OTLP/gRPC), 4318 = HTTP/protobuf (OTLP/HTTP)

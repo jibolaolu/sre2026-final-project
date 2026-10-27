@@ -65,9 +65,12 @@ observability:
       enabled: true
 
 # ── Istio ─────────────────────────────────────────────────────────────────────
+# When Istio is installed in the cluster, set enabled: true.
+# PERMISSIVE is required when the nginx ingress controller runs without a sidecar
+# (no mTLS cert). STRICT enforces mTLS between all pods (EKS/production only).
 istio:
   enabled: false
-  mtls: STRICT
+  mtls: PERMISSIVE
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:

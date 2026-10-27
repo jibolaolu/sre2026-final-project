@@ -1,0 +1,198 @@
+{{- if .Values.istio.enabled }}
+# ── Istio service-mesh policies ───────────────────────────────────────────────
+#
+# These resources are only rendered when istio.enabled=true (see values.yaml).
+# They solve two distinct layers of Istio traffic control:
+#
+#   1. PeerAuthentication  — controls the mTLS mode at the transport level.
+#      PERMISSIVE allows both mTLS (pod-to-pod) and plain HTTP (nginx ingress
+#      has no sidecar and cannot present a cert).
+#
+#   2. AuthorizationPolicy — controls which callers can reach which pods.
+#      The deny-all default blocks everything; explicit ALLOW rules open only
+#      what is needed.  The nginx ingress controller has no principal (no
+#      sidecar), so ingress rules must omit `from` and match on port only.
+#
+# A fresh cluster will have all of this applied on the very first helm deploy,
+# so the 502 / "RBAC: access denied" errors never surface.
+
+---
+# Allow plain HTTP from the nginx ingress controller (no sidecar → no principal)
+# while still requiring mTLS for pod-to-pod traffic.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  mtls:
+    mode: {{ .Values.istio.mtls | default "PERMISSIVE" }}
+
+---
+# Deny everything that is not explicitly allowed.
+# (Equivalent to a NetworkPolicy default-deny but at the application layer.)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec: {}
+
+---
+# ── Ingress → public-facing services ─────────────────────────────────────────
+# nginx ingress sends plain HTTP with no service-account principal, so the
+# `from` block is omitted and the rule matches on port only.
+
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  action: ALLOW
+  rules:
+  - to:
+    - operation:
+        ports: ["80"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress-to-keycloak
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+  action: ALLOW
+  rules:
+  - to:
+    - operation:
+        ports: ["8080"]
+
+---
+# ── Pod-to-pod ALLOW rules ────────────────────────────────────────────────────
+# Frontend JS calls API services directly (Keycloak for auth, user/transaction/
+# activity/finance-agent for data). These rules allow that traffic through the
+# mesh when mTLS is available.
+
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-frontend-user-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: user-service
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-frontend-transaction-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: transaction-service
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-frontend-activity-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: activity-service
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-frontend-finance-agent
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: finance-agent
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-services-to-keycloak
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-telemetry-to-otel-collector
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: otel-collector
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}"]
+
+{{- end }}

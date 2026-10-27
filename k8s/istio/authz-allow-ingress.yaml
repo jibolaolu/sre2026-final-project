@@ -1,0 +1,37 @@
+# AuthorizationPolicy — allow nginx ingress controller traffic
+#
+# The deny-all policy blocks everything not explicitly allowed.
+# The nginx ingress controller runs WITHOUT an Istio sidecar, so its
+# requests arrive with no principal. We allow all inbound traffic to the
+# public-facing services (frontend, keycloak) — the ingress is the
+# boundary; if traffic got past nginx it should reach the pod.
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  namespace: banking
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  action: ALLOW
+  rules:
+  - to:
+    - operation:
+        ports: ["80"]
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress-to-keycloak
+  namespace: banking
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+  action: ALLOW
+  rules:
+  - to:
+    - operation:
+        ports: ["8080"]
