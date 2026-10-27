@@ -175,8 +175,7 @@ jobs:
 
       - name: Sign image with cosign (keyless via OIDC)
         if: github.event_name != 'pull_request' && steps.registry-login.outcome == 'success'
-        env:
-          COSIGN_EXPERIMENTAL: "true"
+        continue-on-error: true
         run: |
           cosign sign --yes \
             ${{ env.REGISTRY }}/${{ steps.lower.outputs.prefix }}/${{ matrix.service }}@${{ steps.build.outputs.digest }}
