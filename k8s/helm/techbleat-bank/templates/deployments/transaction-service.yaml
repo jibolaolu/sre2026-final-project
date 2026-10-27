@@ -36,6 +36,13 @@ spec:
           env:
             - name: SPRING_DATASOURCE_URL
               value: {{ .Values.transactionService.env.springDatasourceUrl | quote }}
+            # Pass ssl=false directly to the pgjdbc driver via HikariCP dataSourceProperties,
+            # in addition to sslmode=disable in the URL, as belt-and-suspenders for local Postgres
+            # which has no TLS configured and drops the connection on SSLRequest.
+            - name: SPRING_DATASOURCE_HIKARI_DATA_SOURCE_PROPERTIES_SSL
+              value: "false"
+            - name: SPRING_DATASOURCE_HIKARI_DATA_SOURCE_PROPERTIES_SSLMODE
+              value: "disable"
             - name: SPRING_DATASOURCE_USERNAME
               value: {{ .Values.transactionService.env.springDatasourceUsername | quote }}
             - name: SPRING_DATASOURCE_PASSWORD

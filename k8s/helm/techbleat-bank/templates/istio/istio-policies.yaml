@@ -195,4 +195,64 @@ spec:
     - source:
         namespaces: ["{{ .Values.global.namespace }}"]
 
+---
+# ── Intra-namespace data-plane services ───────────────────────────────────────
+# transaction-service, user-service, and activity-service all connect to
+# postgres, redis, and kafka which have no ingress-facing ALLOW rules.
+# Without this, the deny-all policy blocks these pod-to-pod connections and
+# Envoy closes the connection mid-handshake — pgjdbc sees this as an SSL EOF.
+
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-banking-to-postgres
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: postgres
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-banking-to-redis
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}"]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-banking-to-kafka
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: kafka
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["{{ .Values.global.namespace }}"]
+
 {{- end }}

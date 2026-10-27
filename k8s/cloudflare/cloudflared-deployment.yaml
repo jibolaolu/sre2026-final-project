@@ -48,12 +48,19 @@ spec:
                 secretKeyRef:
                   name: cloudflare-tunnel-token
                   key: token
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            failureThreshold: 12   # 12 × 5s = 60s budget for prechecks
+            periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /ready
               port: 2000
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            failureThreshold: 3
           resources:
             requests:
               cpu: 50m

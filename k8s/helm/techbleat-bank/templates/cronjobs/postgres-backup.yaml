@@ -71,6 +71,11 @@ spec:
                   ls -t bankingdb_*.sql.gz | tail -n +8 | xargs -r rm --
                   echo "[backup] Retention cleanup done. Current backups:"
                   ls -lh bankingdb_*.sql.gz
+
+                  # Signal the Istio sidecar to exit so the Job pod terminates cleanly.
+                  # Without this the sidecar keeps running after pg-dump exits, leaving
+                  # the pod in 1/2 Completed until the sidecar is eventually killed.
+                  curl -sf -X POST http://localhost:15020/quitquitquit || true
               volumeMounts:
                 - name: backup-storage
                   mountPath: /backup
