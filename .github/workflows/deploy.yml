@@ -125,6 +125,15 @@ jobs:
       # Always delete the Redis StatefulSet before upgrade so Helm recreates it
       # with the correct spec. --cascade=orphan keeps pods running during the
       # transition; data loss is acceptable in local dev.
+      - name: Delete stuck Helm hooks (local-minikube)
+        if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
+        run: |
+          kubectl delete job -n ${{ env.NAMESPACE }} \
+            -l "helm.sh/chart" --field-selector=status.successful=0 2>/dev/null || true
+          kubectl delete job -n ${{ env.NAMESPACE }} \
+            $(kubectl get jobs -n ${{ env.NAMESPACE }} 2>/dev/null \
+              | grep -E "provisioner|hook" | awk '{print $1}') 2>/dev/null || true
+
       - name: Recreate Redis StatefulSet (local-minikube)
         if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
         run: |
