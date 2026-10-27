@@ -100,6 +100,9 @@ jobs:
           minikube image build \
             --profile techbleat-bank \
             -t "${REGISTRY}/frontend:${TAG}" \
+            --build-arg "VITE_KEYCLOAK_URL=${{ vars.VITE_KEYCLOAK_URL || 'https://auth.eaglesoncloude.com' }}" \
+            --build-arg "VITE_KEYCLOAK_REALM=banking" \
+            --build-arg "VITE_KEYCLOAK_CLIENT_ID=banking-frontend" \
             -f techbleat-global-bank-frontend/dockerfile \
             techbleat-global-bank-frontend/
 

@@ -124,8 +124,10 @@ observability:
 # ── Keycloak client redirect URIs (local) ───────────────────────────────────
 keycloakClients:
   frontendRedirectUris:
+    - "https://banking-app.eaglesoncloude.com/*"
     - "http://techbleat-bank.local/*"
     - "http://localhost:3180/*"
   frontendWebOrigins:
+    - "https://banking-app.eaglesoncloude.com"
     - "http://techbleat-bank.local"
     - "http://localhost:3180"
