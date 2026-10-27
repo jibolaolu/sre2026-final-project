@@ -15,6 +15,11 @@ metadata:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+    # Tell nginx to forward the original X-Forwarded-Proto from Cloudflare (https)
+    # instead of overwriting it with http. Keycloak uses this to generate https:// URLs.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header X-Forwarded-Proto https;
+      proxy_set_header X-Forwarded-Port 443;
     {{- if and .Values.tls .Values.tls.enabled }}
     cert-manager.io/cluster-issuer: {{ .Values.tls.issuerName | quote }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"

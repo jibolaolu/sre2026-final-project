@@ -48,17 +48,17 @@ spec:
                 secretKeyRef:
                   name: banking-app-secrets
                   key: keycloak-admin-password
-            # KC_HOSTNAME: full external URL (with https://) so Keycloak generates
-            # correct https:// issuer and endpoint URLs in OIDC discovery.
+            # KC_HOSTNAME: hostname only (no scheme). Keycloak derives the scheme from
+            # X-Forwarded-Proto forwarded by nginx (set to https via configuration-snippet).
             - name: KC_HOSTNAME
-              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | quote }}
+              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
             - name: KC_HOSTNAME_STRICT
               value: "false"
             - name: KC_HOSTNAME_STRICT_HTTPS
               value: "false"
-            # KC_HOSTNAME_ADMIN: full external URL for admin console OIDC flow.
+            # KC_HOSTNAME_ADMIN: hostname only, same rule.
             - name: KC_HOSTNAME_ADMIN
-              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | quote }}
+              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
             # KC_PROXY=edge: trust X-Forwarded-* headers from the ingress controller
             - name: KC_PROXY
               value: "edge"
