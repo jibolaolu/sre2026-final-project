@@ -96,9 +96,6 @@ jobs:
             --profile techbleat-bank \
             -t "${REGISTRY}/frontend:${TAG}" \
             -f techbleat-global-bank-frontend/dockerfile \
-            --build-arg VITE_KEYCLOAK_URL=http://keycloak.techbleat-bank.local \
-            --build-arg VITE_KEYCLOAK_REALM=banking \
-            --build-arg VITE_KEYCLOAK_CLIENT_ID=banking-frontend \
             techbleat-global-bank-frontend/
 
       # Reset the Helm release if it is in a failed state (e.g. from a prior
