@@ -1,0 +1,12 @@
+# PeerAuthentication — allow plain HTTP from nginx ingress controller
+# The nginx ingress controller has no Istio sidecar so it cannot present
+# mTLS credentials. PERMISSIVE lets both mTLS (pod-to-pod) and plain HTTP
+# (ingress-to-pod) traffic through simultaneously.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: banking
+spec:
+  mtls:
+    mode: PERMISSIVE
