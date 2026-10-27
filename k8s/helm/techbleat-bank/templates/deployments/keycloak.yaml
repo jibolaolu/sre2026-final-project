@@ -49,14 +49,14 @@ spec:
                   name: banking-app-secrets
                   key: keycloak-admin-password
             # KC_HOSTNAME: hostname only (no scheme). Keycloak derives the scheme from
-            # X-Forwarded-Proto forwarded by nginx (set to https via configuration-snippet).
+            # X-Forwarded-Proto forwarded by nginx (use-forwarded-headers=true in ingress-nginx ConfigMap).
             - name: KC_HOSTNAME
               value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
             - name: KC_HOSTNAME_STRICT
               value: "false"
             - name: KC_HOSTNAME_STRICT_HTTPS
               value: "false"
-            # KC_HOSTNAME_ADMIN: hostname only, same rule.
+            # KC_HOSTNAME_ADMIN: hostname only, same rule as KC_HOSTNAME.
             - name: KC_HOSTNAME_ADMIN
               value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
             # KC_PROXY=edge: trust X-Forwarded-* headers from the ingress controller
