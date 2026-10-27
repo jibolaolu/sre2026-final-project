@@ -57,6 +57,10 @@ spec:
               value: "false"
             - name: KC_HOSTNAME_STRICT_HTTPS
               value: {{ if and .Values.tls .Values.tls.enabled }}"true"{{ else }}"false"{{ end }}
+            # KC_HOSTNAME_ADMIN: separate URL for admin console (same as public hostname).
+            # Needed so the admin console OIDC flow uses the correct external URL.
+            - name: KC_HOSTNAME_ADMIN
+              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
             # KC_PROXY=edge: trust X-Forwarded-* headers from the ingress controller
             - name: KC_PROXY
               value: "edge"
