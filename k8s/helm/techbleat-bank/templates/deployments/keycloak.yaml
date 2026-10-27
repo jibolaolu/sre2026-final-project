@@ -48,19 +48,17 @@ spec:
                 secretKeyRef:
                   name: banking-app-secrets
                   key: keycloak-admin-password
-            # KC_HOSTNAME tells Keycloak its external URL for OIDC discovery URLs.
-            # Without this, discovery endpoints return the pod's internal hostname,
-            # which the browser cannot reach.
+            # KC_HOSTNAME: full external URL (with https://) so Keycloak generates
+            # correct https:// issuer and endpoint URLs in OIDC discovery.
             - name: KC_HOSTNAME
-              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
+              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | quote }}
             - name: KC_HOSTNAME_STRICT
               value: "false"
             - name: KC_HOSTNAME_STRICT_HTTPS
-              value: {{ if and .Values.tls .Values.tls.enabled }}"true"{{ else }}"false"{{ end }}
-            # KC_HOSTNAME_ADMIN: separate URL for admin console (same as public hostname).
-            # Needed so the admin console OIDC flow uses the correct external URL.
+              value: "false"
+            # KC_HOSTNAME_ADMIN: full external URL for admin console OIDC flow.
             - name: KC_HOSTNAME_ADMIN
-              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
+              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | quote }}
             # KC_PROXY=edge: trust X-Forwarded-* headers from the ingress controller
             - name: KC_PROXY
               value: "edge"
