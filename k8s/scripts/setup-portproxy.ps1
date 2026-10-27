@@ -1,11 +1,11 @@
-# setup-portproxy.ps1 — Restore Windows port proxy after a system reboot.
+# setup-portproxy.ps1 - Restore Windows port proxy after a system reboot.
 # Run in PowerShell as Administrator.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File k8s\scripts\setup-portproxy.ps1
 #
 # What this does:
-#   Routes Windows ports 80/443 → minikube node ports 8080/8443
+#   Routes Windows ports 80/443 -> minikube node ports 8080/8443
 #   so that https://banking-app.eaglesoncloude.com and https://auth.eaglesoncloude.com
 #   reach the nginx ingress controller inside the minikube cluster.
 
@@ -17,7 +17,7 @@ $ErrorActionPreference = "Stop"
 
 Write-Host ""
 Write-Host "=========================================="
-Write-Host "  Techbleat Bank — Windows Port Proxy"
+Write-Host "  Techbleat Bank - Windows Port Proxy"
 Write-Host "=========================================="
 Write-Host ""
 
@@ -67,8 +67,8 @@ Write-Host "=========================================="
 Write-Host "  Done!" -ForegroundColor Green
 Write-Host "=========================================="
 Write-Host ""
-Write-Host "Port 80  → $minikubeIp`:8080  (HTTP ingress)"
-Write-Host "Port 443 → $minikubeIp`:8443  (HTTPS ingress)"
+Write-Host ("Port 80  -> " + $minikubeIp + ":8080  (HTTP ingress)")
+Write-Host ("Port 443 -> " + $minikubeIp + ":8443  (HTTPS ingress)")
 Write-Host ""
 Write-Host "Test:"
 Write-Host "  https://banking-app.eaglesoncloude.com"
