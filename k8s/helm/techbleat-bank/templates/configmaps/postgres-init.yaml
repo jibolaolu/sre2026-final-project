@@ -50,3 +50,9 @@ data:
         created_at    TIMESTAMP DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_activities_user_id ON activities (user_id);
+
+    -- Seed demo user so bankingdemo works immediately after a fresh cluster setup
+    INSERT INTO users (id, full_name, email) VALUES ('bankingdemo', 'Banking Demo', 'demo@techbleat-bank.local')
+      ON CONFLICT (id) DO NOTHING;
+    INSERT INTO accounts (user_id, balance) VALUES ('bankingdemo', 10000)
+      ON CONFLICT (user_id) DO NOTHING;

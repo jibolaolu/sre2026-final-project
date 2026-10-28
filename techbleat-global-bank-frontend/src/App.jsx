@@ -131,7 +131,12 @@ export default function TechbleatGlobalBankCustomerApp() {
       let errorText = "Request failed";
       try {
         const data = await response.json();
-        errorText = data.detail || data.message || JSON.stringify(data);
+        const d = data.detail ?? data.message;
+        errorText = d == null
+          ? JSON.stringify(data)
+          : typeof d === "string" ? d
+          : Array.isArray(d) ? d.map((e) => e.msg || JSON.stringify(e)).join("; ")
+          : JSON.stringify(d);
       } catch {
         errorText = await response.text();
       }
@@ -309,7 +314,12 @@ export default function TechbleatGlobalBankCustomerApp() {
         let errorText = body || "Unable to create your bank profile.";
         try {
           const data = JSON.parse(body);
-          errorText = data.detail || data.message || errorText;
+          const d = data.detail ?? data.message;
+          if (d != null) {
+            errorText = typeof d === "string" ? d
+              : Array.isArray(d) ? d.map((e) => e.msg || JSON.stringify(e)).join("; ")
+              : JSON.stringify(d);
+          }
         } catch {
           // Keep the response text when the service does not return JSON.
         }

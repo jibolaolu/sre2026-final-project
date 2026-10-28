@@ -56,9 +56,11 @@ spec:
               value: "false"
             - name: KC_HOSTNAME_STRICT_HTTPS
               value: "false"
-            # KC_HOSTNAME_ADMIN: hostname only, same rule as KC_HOSTNAME.
-            - name: KC_HOSTNAME_ADMIN
-              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
+            # KC_HOSTNAME_ADMIN_URL: full URL for admin console — avoids Keycloak
+            # appending the ingress port (e.g. :80) to the admin redirect URL.
+            # Must NOT be set together with KC_HOSTNAME_ADMIN (Keycloak rejects both).
+            - name: KC_HOSTNAME_ADMIN_URL
+              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | quote }}
             # KC_PROXY=edge: trust X-Forwarded-* headers from the ingress controller
             - name: KC_PROXY
               value: "edge"

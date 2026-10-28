@@ -106,6 +106,14 @@ jobs:
             techbleat-global-bank-frontend/
           minikube image load "${REGISTRY}/frontend:${TAG}" --profile techbleat-bank
 
+      # Ensure nginx ingress forwards X-Forwarded-Proto from Cloudflare so Keycloak
+      # generates https:// OIDC URLs. Applied every deploy — idempotent patch.
+      - name: Patch nginx ingress ConfigMap (local-minikube)
+        if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
+        run: |
+          kubectl patch configmap ingress-nginx-controller -n ingress-nginx \
+            --type=merge -p '{"data":{"use-forwarded-headers":"true"}}' || true
+
       # Reset the Helm release if it is in a failed state (e.g. from a prior
       # --atomic rollback that itself failed due to immutable StatefulSet fields).
       # Uninstalling lets the next step do a clean helm upgrade --install.
