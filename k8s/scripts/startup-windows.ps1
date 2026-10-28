@@ -44,9 +44,9 @@ Start-Sleep -Seconds 30
 Log "Launching recovery.sh in WSL2..."
 $wsl = "C:\Windows\System32\wsl.exe"
 if (Test-Path $wsl) {
-    $recoveryPath = "/mnt/c/Users/EAGLESOLUTIONS/Documents/AI_BANKING_APP/sre2026-final-project/k8s/scripts/recovery.sh"
+    $startupPath = "/mnt/c/Users/EAGLESOLUTIONS/Documents/AI_BANKING_APP/sre2026-final-project/k8s/scripts/startup.sh"
     Start-Process -FilePath $wsl `
-        -ArgumentList "-d", "Ubuntu", "--", "bash", $recoveryPath `
+        -ArgumentList "-d", "Ubuntu", "--", "bash", $startupPath, "--skip-build" `
         -NoNewWindow `
         -Wait
     Log "recovery.sh completed."
