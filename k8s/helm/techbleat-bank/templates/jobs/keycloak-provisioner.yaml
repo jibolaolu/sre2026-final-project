@@ -61,18 +61,26 @@ spec:
               done
               echo "[provisioner] Keycloak is ready."
 
-              # ── Get admin token ────────────────────────────────────────────
-              # --data-urlencode is required: the admin password may contain special
-              # characters (&, =, +, #) that break plain -d form encoding.
-              TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
-                --data-urlencode "grant_type=password" \
-                --data-urlencode "client_id=admin-cli" \
-                --data-urlencode "username=${KC_ADMIN_USER}" \
-                --data-urlencode "password=${KC_ADMIN_PASSWORD}" \
-                | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+              # ── Get admin token (with retry) ───────────────────────────────
+              # Keycloak may report /realms/master ready before the admin user
+              # is fully initialised.  Retry up to 12 times (60 s) before failing.
+              TOKEN=""
+              for i in $(seq 1 12); do
+                TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+                  --data-urlencode "grant_type=password" \
+                  --data-urlencode "client_id=admin-cli" \
+                  --data-urlencode "username=${KC_ADMIN_USER}" \
+                  --data-urlencode "password=${KC_ADMIN_PASSWORD}" \
+                  | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 || true)
+                if [ -n "$TOKEN" ]; then
+                  break
+                fi
+                echo "[provisioner] Admin token attempt $i/12 failed, retrying in 5s..."
+                sleep 5
+              done
 
               if [ -z "$TOKEN" ]; then
-                echo "[provisioner] ERROR: Failed to get admin token"
+                echo "[provisioner] ERROR: Failed to get admin token after retries. Wrong password or Keycloak not ready."
                 exit 1
               fi
               echo "[provisioner] Got admin token."
