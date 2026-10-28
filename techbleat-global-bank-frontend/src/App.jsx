@@ -130,15 +130,22 @@ export default function TechbleatGlobalBankCustomerApp() {
     if (!response.ok) {
       let errorText = "Request failed";
       try {
-        const data = await response.json();
-        const d = data.detail ?? data.message;
-        errorText = d == null
-          ? JSON.stringify(data)
-          : typeof d === "string" ? d
-          : Array.isArray(d) ? d.map((e) => e.msg || JSON.stringify(e)).join("; ")
-          : JSON.stringify(d);
+        const body = await response.text();
+        if (body) {
+          try {
+            const data = JSON.parse(body);
+            const d = data.detail ?? data.message;
+            errorText = d == null
+              ? JSON.stringify(data)
+              : typeof d === "string" ? d
+              : Array.isArray(d) ? d.map((e) => e.msg || JSON.stringify(e)).join("; ")
+              : JSON.stringify(d);
+          } catch {
+            errorText = body;
+          }
+        }
       } catch {
-        errorText = await response.text();
+        // body unreadable
       }
       throw new Error(errorText || "Request failed");
     }
