@@ -273,14 +273,20 @@ case "${HELM_STATUS}" in
     kubectl delete secret -n "${NAMESPACE}" -l "owner=helm,name=${RELEASE}" \
       --ignore-not-found 2>/dev/null || true ;;
   deployed)
-    # Check if the current image tag is already deployed
+    # Check if the current image tag is already deployed AND key resources exist.
+    # Helm's "deployed" status only reflects its own state record — actual cluster
+    # resources may be missing (drift after a crash, manual delete, etc.).
     CURRENT_TAG=$(helm get values "${RELEASE}" -n "${NAMESPACE}" -o json 2>/dev/null \
       | python3 -c "import sys,json; v=json.load(sys.stdin); print(v.get('userService',{}).get('image',{}).get('tag',''))" \
       2>/dev/null || echo "")
-    if [ "${CURRENT_TAG}" = "${IMAGE_TAG}" ] && [ "${SKIP_BUILD}" = "1" ]; then
-      skip "Helm release (tag ${IMAGE_TAG} already deployed)"
+    # Verify the two most critical deployments actually exist in the cluster
+    KC_EXISTS=$(kubectl get deployment "${RELEASE}-keycloak"  -n "${NAMESPACE}" --ignore-not-found 2>/dev/null | wc -l)
+    FE_EXISTS=$(kubectl get deployment "${RELEASE}-frontend"  -n "${NAMESPACE}" --ignore-not-found 2>/dev/null | wc -l)
+    RESOURCES_OK=$([ "${KC_EXISTS}" -gt 0 ] && [ "${FE_EXISTS}" -gt 0 ] && echo "yes" || echo "no")
+    if [ "${CURRENT_TAG}" = "${IMAGE_TAG}" ] && [ "${SKIP_BUILD}" = "1" ] && [ "${RESOURCES_OK}" = "yes" ]; then
+      skip "Helm release (tag ${IMAGE_TAG} already deployed, resources present)"
       phase_skipped "helm-deploy"
-      # Still ensure pods are running — rollout restart any that aren't
+      # Rollout-restart any pods that are not ready
       UNHEALTHY=$(kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null \
         | awk '{split($2,r,"/"); if (r[1]!=r[2] || r[1]=="0") print $1}' || true)
       if [ -n "${UNHEALTHY}" ]; then
@@ -293,6 +299,9 @@ case "${HELM_STATUS}" in
               -l "app.kubernetes.io/name=${DEP}" 2>/dev/null || true
         done
       fi
+    else
+      [ "${RESOURCES_OK}" = "no" ] && \
+        info "Helm state says deployed but cluster resources missing — forcing upgrade to restore."
     fi ;;
 esac
 
