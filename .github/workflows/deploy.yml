@@ -126,9 +126,11 @@ jobs:
           kubectl patch configmap ingress-nginx-controller -n ingress-nginx \
             --type=merge -p '{"data":{"use-forwarded-headers":"true"}}' || true
 
-      # Reset the Helm release if it is in a failed state (e.g. from a prior
-      # --atomic rollback that itself failed due to immutable StatefulSet fields).
-      # Uninstalling lets the next step do a clean helm upgrade --install.
+      # Only uninstall when the release is stuck mid-upgrade (pending-upgrade),
+      # which blocks any further helm upgrade.  A "failed" status is usually
+      # caused by a failed post-upgrade hook (e.g. keycloak-provisioner); in
+      # that case the workloads are running fine and a plain upgrade heals it —
+      # a full uninstall would force a slow fresh install of all 12 services.
       - name: Reset failed Helm release (local-minikube)
         if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
         run: |
@@ -136,9 +138,11 @@ jobs:
             | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['status'])" 2>/dev/null \
             || echo "not-found")
           echo "Helm release status: ${STATUS}"
-          if [ "${STATUS}" = "failed" ] || [ "${STATUS}" = "pending-upgrade" ]; then
-            echo "Uninstalling failed release so the next step can do a clean install"
+          if [ "${STATUS}" = "pending-upgrade" ]; then
+            echo "Release is stuck mid-upgrade — uninstalling for a clean install"
             helm uninstall ${{ env.RELEASE }} -n ${{ env.NAMESPACE }} --wait 2>/dev/null || true
+          elif [ "${STATUS}" = "failed" ]; then
+            echo "Release failed (likely a hook error) — skipping uninstall; upgrade will heal it"
           fi
 
       # volumeClaimTemplates are immutable in Kubernetes — Helm cannot patch them.
@@ -188,7 +192,7 @@ jobs:
             --set secrets.openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
             --set secrets.anthropicApiKey="${{ secrets.ANTHROPIC_API_KEY }}" \
             --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}" \
-            --wait --timeout 8m
+            --wait --timeout 15m
 
       # ── GHCR build-and-push (kind + EKS) ─────────────────────────────────────
       # For GitHub-hosted runners (kind, EKS) images must be pushed to a registry.
