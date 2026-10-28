@@ -62,7 +62,20 @@ data:
             "post.logout.redirect.uris": "+"
           },
           "defaultClientScopes": ["web-origins", "profile", "roles", "email", "account"],
-          "optionalClientScopes": ["address", "phone", "offline_access"]
+          "optionalClientScopes": ["address", "phone", "offline_access"],
+          "protocolMappers": [
+            {
+              "name": "account-audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "account",
+                "id.token.claim": "false",
+                "access.token.claim": "true"
+              }
+            }
+          ]
         },
         {
           "clientId": "banking-provisioner",
