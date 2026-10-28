@@ -17,6 +17,8 @@ spec:
       labels:
         {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: keycloak
+      annotations:
+        checksum/realm: {{ include (print $.Template.BasePath "/configmaps/keycloak-realm.yaml") . | sha256sum }}
     spec:
       serviceAccountName: keycloak
       securityContext:
