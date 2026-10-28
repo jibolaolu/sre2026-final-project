@@ -62,7 +62,24 @@ CLOUDFLARE_TUNNEL_TOKEN="$(_c "${CLOUDFLARE_TUNNEL_TOKEN:-}")"
 KEYCLOAK_PUBLIC_URL="$(_c "${KEYCLOAK_PUBLIC_URL:-http://keycloak.techbleat-bank.local}")"
 GITHUB_USERNAME="$(_c "${GITHUB_USERNAME:-}")"
 DOCKERHUB_USERNAME="$(_c "${DOCKERHUB_USERNAME:-}")"
-IMAGE_TAG="$(_c "${IMAGE_TAG:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo latest)}")"
+# When --skip-build, use the previously deployed image tag from Helm rather than
+# the current git SHA. The git SHA changes on every commit but images are only
+# built by GitHub Actions — using a tag that was never pushed causes ImagePullBackOff
+# and the keycloak-provisioner hook hangs waiting for Keycloak that can never start.
+if [ "${SKIP_BUILD}" = "1" ]; then
+  _DEPLOYED_TAG=$(helm get values techbleat-bank -n banking -o json 2>/dev/null \
+    | python3 -c "import sys,json; v=json.load(sys.stdin); print(v.get('userService',{}).get('image',{}).get('tag',''))" \
+    2>/dev/null || echo "")
+  if [ -n "${_DEPLOYED_TAG}" ]; then
+    IMAGE_TAG="${_DEPLOYED_TAG}"
+    info "Using previously deployed image tag: ${IMAGE_TAG}"
+  else
+    IMAGE_TAG="$(_c "${IMAGE_TAG:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo latest)}")"
+    warn "No previously deployed tag found — using git SHA ${IMAGE_TAG}. Images must exist in GHCR."
+  fi
+else
+  IMAGE_TAG="$(_c "${IMAGE_TAG:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo latest)}")"
+fi
 
 if [ -n "${GITHUB_USERNAME}" ]; then
   IMAGE_REGISTRY="ghcr.io/${GITHUB_USERNAME}/"
