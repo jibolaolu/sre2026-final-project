@@ -192,7 +192,35 @@ jobs:
             --set secrets.openaiApiKey="${{ secrets.OPENAI_API_KEY }}" \
             --set secrets.anthropicApiKey="${{ secrets.ANTHROPIC_API_KEY }}" \
             --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}" \
-            --wait --timeout 15m
+            --timeout 15m
+
+      # Wait for Keycloak to be fully ready before the provisioner hook fires.
+      # Helm --wait was removed to avoid timing out when other slow services
+      # (Kafka, Postgres) delay the overall rollout.  The provisioner has its
+      # own internal retry loop, but this explicit wait gives it a warm target.
+      - name: Wait for Keycloak ready (local-minikube)
+        if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
+        run: |
+          echo "Waiting for Keycloak deployment to be ready (up to 10m)..."
+          kubectl rollout status deployment/techbleat-bank-keycloak \
+            -n ${{ env.NAMESPACE }} --timeout=10m || true
+          echo "Waiting for Keycloak pod /realms/master endpoint (up to 5m)..."
+          for i in $(seq 1 30); do
+            POD=$(kubectl get pod -n ${{ env.NAMESPACE }} \
+              -l app.kubernetes.io/component=keycloak \
+              --field-selector=status.phase=Running \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+            if [ -n "$POD" ]; then
+              STATUS=$(kubectl exec "$POD" -n ${{ env.NAMESPACE }} -- \
+                curl -sf http://localhost:8080/realms/master -o /dev/null -w "%{http_code}" 2>/dev/null || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "Keycloak is ready."
+                break
+              fi
+            fi
+            echo "Attempt $i/30: Keycloak not ready yet, retrying in 10s..."
+            sleep 10
+          done
 
       # ── GHCR build-and-push (kind + EKS) ─────────────────────────────────────
       # For GitHub-hosted runners (kind, EKS) images must be pushed to a registry.
