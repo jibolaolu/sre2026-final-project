@@ -27,6 +27,11 @@ spec:
   selector:
     matchLabels:
       app: cloudflared
+  # Recreate terminates the old pod before starting the new one.
+  # This prevents two connectors racing to open the same Cloudflare tunnel,
+  # which causes the new pod to fail its startup probe and loop.
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:

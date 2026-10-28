@@ -108,6 +108,18 @@ jobs:
 
       # Ensure nginx ingress forwards X-Forwarded-Proto from Cloudflare so Keycloak
       # generates https:// OIDC URLs. Applied every deploy — idempotent patch.
+      # Force a rolling restart for every app deployment so the freshly-built
+      # 'latest' images are actually used.  With imagePullPolicy=IfNotPresent
+      # and a fixed 'latest' tag, Kubernetes will NOT restart pods on its own
+      # even after minikube image build rebuilds the image.
+      - name: Restart app deployments (local-minikube)
+        if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
+        run: |
+          for DEPLOY in user-service transaction-service activity-service finance-agent frontend; do
+            kubectl rollout restart deployment/techbleat-bank-${DEPLOY} -n ${{ env.NAMESPACE }} 2>/dev/null || true
+          done
+          kubectl rollout status deployment/techbleat-bank-frontend -n ${{ env.NAMESPACE }} --timeout=3m || true
+
       - name: Patch nginx ingress ConfigMap (local-minikube)
         if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
         run: |
@@ -338,7 +350,7 @@ jobs:
           # Collect pod readiness
           TOTAL=$(kubectl get pods -n ${{ env.NAMESPACE }} --no-headers 2>/dev/null | wc -l)
           READY=$(kubectl get pods -n ${{ env.NAMESPACE }} --no-headers 2>/dev/null \
-            | awk -F'/' '{split($2,a," "); if (a[1]==a[2] && a[1]!="0") count++} END{print count+0}')
+            | awk '{split($2,r,"/"); if (r[1]==r[2] && r[1]!="0") count++} END{print count+0}')
           NOT_RUNNING=$(kubectl get pods -n ${{ env.NAMESPACE }} --no-headers 2>/dev/null \
             | grep -v " Running \| Completed " | awk '{print "  ⚠  "$1" — "$3}')
 
