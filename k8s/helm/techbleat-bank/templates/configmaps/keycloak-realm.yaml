@@ -61,7 +61,7 @@ data:
             "pkce.code.challenge.method": "S256",
             "post.logout.redirect.uris": "+"
           },
-          "defaultClientScopes": ["web-origins", "profile", "roles", "email"],
+          "defaultClientScopes": ["web-origins", "profile", "roles", "email", "account"],
           "optionalClientScopes": ["address", "phone", "offline_access"]
         },
         {
