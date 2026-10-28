@@ -67,15 +67,27 @@ DOCKERHUB_USERNAME="$(_c "${DOCKERHUB_USERNAME:-}")"
 # built by GitHub Actions — using a tag that was never pushed causes ImagePullBackOff
 # and the keycloak-provisioner hook hangs waiting for Keycloak that can never start.
 if [ "${SKIP_BUILD}" = "1" ]; then
-  _DEPLOYED_TAG=$(helm get values techbleat-bank -n banking -o json 2>/dev/null \
+  # 1st choice: tag from the running Helm release (most reliable)
+  _DEPLOYED_TAG=$(helm get values "${RELEASE}" -n "${NAMESPACE}" -o json 2>/dev/null \
     | python3 -c "import sys,json; v=json.load(sys.stdin); print(v.get('userService',{}).get('image',{}).get('tag',''))" \
     2>/dev/null || echo "")
+  # 2nd choice: tag already loaded in minikube's image cache
+  _MINIKUBE_TAG=$(minikube image ls --profile "${CLUSTER_NAME}" 2>/dev/null \
+    | grep -E "${GITHUB_USERNAME:-${DOCKERHUB_USERNAME:-}}/user-service:" \
+    | head -1 | sed 's/.*://' | tr -d ' ' || echo "")
   if [ -n "${_DEPLOYED_TAG}" ]; then
     IMAGE_TAG="${_DEPLOYED_TAG}"
     info "Using previously deployed image tag: ${IMAGE_TAG}"
+  elif [ -n "${_MINIKUBE_TAG}" ]; then
+    IMAGE_TAG="${_MINIKUBE_TAG}"
+    info "Using image tag found in minikube cache: ${IMAGE_TAG}"
+  elif [ -n "${IMAGE_TAG:-}" ]; then
+    IMAGE_TAG="$(_c "${IMAGE_TAG}")"
+    info "Using IMAGE_TAG from environment: ${IMAGE_TAG}"
   else
-    IMAGE_TAG="$(_c "${IMAGE_TAG:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo latest)}")"
-    warn "No previously deployed tag found — using git SHA ${IMAGE_TAG}. Images must exist in GHCR."
+    die "Cannot determine image tag for --skip-build. Either:
+  1. Set IMAGE_TAG=<tag> in .env (use the tag from your last successful build)
+  2. Run without --skip-build to rebuild images"
   fi
 else
   IMAGE_TAG="$(_c "${IMAGE_TAG:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo latest)}")"
