@@ -346,16 +346,23 @@ jobs:
             --wait --timeout 20m
 
       # ── Cloudflare Tunnel (local-minikube only) ────────────────────────────
-      # Apply the cloudflared deployment so the tunnel connector is always
-      # up-to-date after a deploy. The tunnel token secret must already exist
-      # (created by deploy-local.sh from CLOUDFLARE_TUNNEL_TOKEN in .env).
+      # Creates (or updates) the tunnel token secret from GitHub Secrets so
+      # cloudflared is self-healing — no manual deploy-local.sh run needed
+      # after a cluster reset or fresh deploy.
       - name: Apply cloudflared deployment (local-minikube)
         if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
         run: |
-          if kubectl get secret cloudflare-tunnel-token -n ${{ env.NAMESPACE }} &>/dev/null; then
+          if [ -n "${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}" ]; then
+            kubectl create secret generic cloudflare-tunnel-token \
+              --from-literal=token="${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}" \
+              -n ${{ env.NAMESPACE }} \
+              --dry-run=client -o yaml | kubectl apply -f -
             kubectl apply -f k8s/cloudflare/cloudflared-deployment.yaml
+            kubectl rollout restart deployment/cloudflared -n ${{ env.NAMESPACE }} 2>/dev/null || true
+            echo "cloudflared deployed and restarted."
           else
-            echo "Skipping cloudflared: cloudflare-tunnel-token secret not found (set CLOUDFLARE_TUNNEL_TOKEN in .env and run deploy-local.sh)"
+            echo "Skipping cloudflared: CLOUDFLARE_TUNNEL_TOKEN secret not set in GitHub Actions."
+            echo "Add it at: repo → Settings → Secrets and variables → Actions → New repository secret"
           fi
 
       # ── Verify (all environments) ──────────────────────────────────────────
