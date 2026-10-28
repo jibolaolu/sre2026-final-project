@@ -318,3 +318,99 @@ jobs:
         run: |
           kubectl get pods -n ${{ env.NAMESPACE }}
           kubectl get ingress -n ${{ env.NAMESPACE }}
+
+      # ── Deploy summary ────────────────────────────────────────────────────
+      - name: Deploy summary
+        if: always()
+        run: |
+          ENV="${{ inputs.environment || 'local-minikube' }}"
+          TAG="${{ steps.tag.outputs.tag }}"
+
+          # Determine public URLs based on environment
+          if [ "$ENV" = "local-minikube" ] || [ "$ENV" = "local-kind" ]; then
+            FRONTEND_URL="https://banking-app.eaglesoncloude.com"
+            KEYCLOAK_URL="https://auth.eaglesoncloude.com"
+          else
+            FRONTEND_URL="${{ vars.VITE_KEYCLOAK_URL || 'https://banking-app.eaglesoncloude.com' }}"
+            KEYCLOAK_URL="https://auth.eaglesoncloude.com"
+          fi
+
+          # Collect pod readiness
+          TOTAL=$(kubectl get pods -n ${{ env.NAMESPACE }} --no-headers 2>/dev/null | wc -l)
+          READY=$(kubectl get pods -n ${{ env.NAMESPACE }} --no-headers 2>/dev/null \
+            | awk -F'/' '{split($2,a," "); if (a[1]==a[2] && a[1]!="0") count++} END{print count+0}')
+          NOT_RUNNING=$(kubectl get pods -n ${{ env.NAMESPACE }} --no-headers 2>/dev/null \
+            | grep -v " Running \| Completed " | awk '{print "  ⚠  "$1" — "$3}')
+
+          # Collect image tags in use
+          USER_SVC_IMG=$(kubectl get deployment techbleat-bank-user-service -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | awk -F: '{print $NF}')
+          TXN_SVC_IMG=$(kubectl get deployment techbleat-bank-transaction-service -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | awk -F: '{print $NF}')
+          FRONTEND_IMG=$(kubectl get deployment techbleat-bank-frontend -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | awk -F: '{print $NF}')
+          KC_IMG=$(kubectl get deployment techbleat-bank-keycloak -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | awk -F: '{print $NF}')
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "  TECHBLEAT GLOBAL BANK — DEPLOY SUMMARY"
+          echo "════════════════════════════════════════════════════════════"
+          echo "  Environment : $ENV"
+          echo "  Image tag   : $TAG"
+          echo "  Namespace   : ${{ env.NAMESPACE }}"
+          echo "  Pods ready  : $READY / $TOTAL"
+          echo ""
+          echo "  ── URLs ─────────────────────────────────────────────────"
+          echo "  Banking App      : $FRONTEND_URL"
+          echo "  Keycloak Admin   : $KEYCLOAK_URL/admin  (user: admin)"
+          echo "  Keycloak Realm   : $KEYCLOAK_URL/realms/banking"
+          echo "  OIDC Discovery   : $KEYCLOAK_URL/realms/banking/.well-known/openid-configuration"
+          echo ""
+          echo "  ── Demo credentials ─────────────────────────────────────"
+          echo "  Username : bankingdemo"
+          echo "  Password : Demo@2024"
+          echo ""
+          echo "  ── Image tags in cluster ────────────────────────────────"
+          echo "  frontend            : $FRONTEND_IMG"
+          echo "  user-service        : $USER_SVC_IMG"
+          echo "  transaction-service : $TXN_SVC_IMG"
+          echo "  keycloak            : $KC_IMG"
+          echo ""
+          if [ -n "$NOT_RUNNING" ]; then
+            echo "  ── Pods NOT running ─────────────────────────────────────"
+            echo "$NOT_RUNNING"
+            echo ""
+          fi
+          echo "════════════════════════════════════════════════════════════"
+          echo ""
+          # Also write to GitHub step summary (visible in the Actions UI)
+          {
+            echo "## Techbleat Global Bank — Deploy Summary"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Environment** | \`$ENV\` |"
+            echo "| **Image tag** | \`$TAG\` |"
+            echo "| **Pods ready** | $READY / $TOTAL |"
+            echo ""
+            echo "### URLs"
+            echo "| Service | URL |"
+            echo "|---|---|"
+            echo "| Banking App | [$FRONTEND_URL]($FRONTEND_URL) |"
+            echo "| Keycloak Admin | [$KEYCLOAK_URL/admin]($KEYCLOAK_URL/admin) |"
+            echo "| Keycloak Realm | [$KEYCLOAK_URL/realms/banking]($KEYCLOAK_URL/realms/banking) |"
+            echo ""
+            echo "### Demo Login"
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Username | \`bankingdemo\` |"
+            echo "| Password | \`Demo@2024\` |"
+            echo ""
+            if [ -n "$NOT_RUNNING" ]; then
+              echo "### ⚠ Pods not running"
+              echo "\`\`\`"
+              echo "$NOT_RUNNING"
+              echo "\`\`\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
