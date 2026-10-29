@@ -49,6 +49,23 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
 
+  # Prevent ArgoCD from overwriting secrets that contain real credentials.
+  # Secrets are seeded by startup.sh (via --set flags) and must not be
+  # overwritten by Helm renders that lack those values.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: banking-app-secrets
+      namespace: banking
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: Secret
+      name: banking-keycloak-secrets
+      namespace: banking
+      jsonPointers:
+        - /data
+
 ---
 # AppProject — restricts what ArgoCD can deploy (security best practice)
 apiVersion: argoproj.io/v1alpha1
