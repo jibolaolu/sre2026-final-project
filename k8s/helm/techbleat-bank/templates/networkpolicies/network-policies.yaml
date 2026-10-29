@@ -224,6 +224,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: postgres-backup
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: keycloak
       ports:
         - port: 5432
 
@@ -334,6 +337,34 @@ spec:
       ports:
         - port: 4317
         - port: 4318
+
+---
+# ── Egress: keycloak → postgres (for keycloakdb) ─────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-keycloak-egress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgres
+      ports:
+        - port: 5432
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
 
 ---
 # ── Egress: keycloak-provisioner Job → keycloak ───────────────────────────────
