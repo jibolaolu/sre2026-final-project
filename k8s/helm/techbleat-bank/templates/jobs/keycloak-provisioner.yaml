@@ -107,10 +107,25 @@ spec:
                 | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
               if [ -n "$PROVISIONER_ID" ]; then
-                # Secret is managed via the realm ConfigMap (keycloak-realm.yaml uses
-                # .Values.secrets.keycloakAdminClientSecret). Calling POST /client-secret
-                # would regenerate a random value and break the match with the K8s secret.
-                echo "[provisioner] Skipping secret regeneration (managed via realm ConfigMap)."
+                # Sync the banking-provisioner client secret to match the K8s secret.
+                # This is idempotent and handles: first boot, secret rotation, and the
+                # productionMode migration where --import-realm skips existing realms.
+                FULL_CLIENT=$(curl -s "${KC_API}/${KC_REALM}/clients/${PROVISIONER_ID}" \
+                  -H "Authorization: Bearer $TOKEN")
+                if [ -n "$FULL_CLIENT" ]; then
+                  # Use | as sed delimiter to avoid conflict with / inside character classes.
+                  # Replaces "secret":"<old>" with "secret":"<new>" in the full client JSON.
+                  PATCHED_CLIENT=$(printf '%s' "$FULL_CLIENT" | \
+                    sed 's|"secret":"[^"]*"|"secret":"'"${PROVISIONER_SECRET}"'"|g')
+                  PUT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -X PUT "${KC_API}/${KC_REALM}/clients/${PROVISIONER_ID}" \
+                    -H "Authorization: Bearer $TOKEN" \
+                    -H "Content-Type: application/json" \
+                    -d "$PATCHED_CLIENT")
+                  [ "$PUT_STATUS" = "204" ] \
+                    && echo "[provisioner] banking-provisioner client secret synced (HTTP 204)." \
+                    || echo "[provisioner] WARNING: client secret sync returned HTTP ${PUT_STATUS}."
+                fi
 
                 # Grant realm-admin role to service account
                 SA_ID=$(curl -s "${KC_API}/${KC_REALM}/clients/${PROVISIONER_ID}/service-account-user" \

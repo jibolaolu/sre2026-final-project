@@ -1,5 +1,11 @@
 # portproxy.ps1 — Idempotent netsh portproxy setup for Techbleat Global Bank.
-# Forwards Windows ports 80/443 to the WSL2 ingress port-forward (8080/8443).
+# Forwards Windows ports 80 and 443 to the WSL2 ingress HTTP port-forward (8080).
+#
+# Both ports forward to 8080 because:
+#   - The local ingress has TLS disabled (Cloudflare terminates HTTPS at the edge)
+#   - Port 8443 may be held by other system services (nginx, IIS, etc.)
+#   - The ingress handles all routing regardless of whether the client used HTTP or HTTPS
+#
 # Must run as Administrator (Task Scheduler or right-click → Run as Administrator).
 #
 # To register as a startup task (run once as Admin):
@@ -11,8 +17,8 @@
 #     -Force
 
 $rules = @(
-    @{ ListenPort = 80;  ConnectPort = 8080 },
-    @{ ListenPort = 443; ConnectPort = 8443 }
+    @{ ListenPort = 80;  ConnectPort = 9080 },   # 8080 reserved by other services on this machine
+    @{ ListenPort = 443; ConnectPort = 9080 }    # 8443 reserved by other services on this machine
 )
 
 foreach ($r in $rules) {
