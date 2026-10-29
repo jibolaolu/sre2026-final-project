@@ -49,10 +49,9 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
 
-  # Prevent ArgoCD from overwriting secrets that contain real credentials.
-  # Secrets are seeded by startup.sh (via --set flags) and must not be
-  # overwritten by Helm renders that lack those values.
+  # Prevent ArgoCD from overwriting resources managed outside Git.
   ignoreDifferences:
+    # Secrets — real values injected by startup.sh, not in values.yaml
     - group: ""
       kind: Secret
       name: banking-app-secrets
@@ -65,6 +64,18 @@ spec:
       namespace: banking
       jsonPointers:
         - /data
+    # Image tags — set by startup.sh --set flags (git SHA per build).
+    # values.yaml has empty tags; ArgoCD must not overwrite running images.
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.spec.containers[].image
+        - .spec.template.spec.initContainers[].image
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .spec.template.spec.containers[].image
+        - .spec.template.spec.initContainers[].image
 
 ---
 # AppProject — restricts what ArgoCD can deploy (security best practice)

@@ -17,7 +17,7 @@
 #   <node-ip> techbleat-bank.local keycloak.techbleat-bank.local
 
 global:
-  imageRegistry: ""          # Set to "YOURDOCKERHUBUSER/" via --set
+  imageRegistry: "ghcr.io/jibolaolu/"   # set here so ArgoCD syncs with valid images
   imagePullPolicy: IfNotPresent
   storageClass: standard     # kind default storage class
 
