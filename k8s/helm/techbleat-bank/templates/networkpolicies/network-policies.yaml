@@ -415,6 +415,57 @@ spec:
           protocol: TCP
 
 ---
+# ── Egress: all pods → istiod xDS control plane (required when Istio is active) ─
+# Without this, the istio-proxy native sidecar init container cannot reach istiod
+# (port 15012 mTLS xDS) and never becomes Ready, blocking all subsequent init
+# containers and the app container. Default-deny-all egress breaks Istio.
+{{- if .Values.istio.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istio-control-plane-egress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - port: 15012
+          protocol: TCP
+        - port: 15010
+          protocol: TCP
+{{- end }}
+
+---
+# ── Egress: cloudflared → Cloudflare edge (QUIC UDP 7844 + HTTPS TCP 443) ──────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cloudflared-egress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: cloudflared
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 7844
+          protocol: UDP
+
+---
 # ── Egress: postgres-backup CronJob → postgres ────────────────────────────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
