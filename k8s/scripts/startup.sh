@@ -178,7 +178,7 @@ kubectl delete validatingwebhookconfigurations ingress-nginx-admission \
 # PHASE 3 — Kubernetes namespace + secrets
 # ─────────────────────────────────────────────────────────────────────────────
 printf "\n${BOLD}━━ Phase 3: Namespace + secrets ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
-kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply --validate=false -f -
 
 # Secrets are always synced from .env (dry-run apply is idempotent)
 kubectl create secret generic banking-app-secrets \
@@ -201,6 +201,15 @@ else
   phase_warned "cloudflare-token missing"
 fi
 phase_done "secrets"
+
+# Restart finance-agent if it's already running so it picks up the freshly
+# synced API keys from banking-app-secrets (needed after ArgoCD secret wipes).
+_FA_RUNNING=$(timeout 5 kubectl get deployment "${RELEASE}-finance-agent" \
+  -n "${NAMESPACE}" --no-headers 2>/dev/null | awk '{print $1}' || echo "")
+if [ -n "${_FA_RUNNING}" ] && ([ -n "${OPENAI_API_KEY}" ] || [ -n "${ANTHROPIC_API_KEY}" ]); then
+  kubectl rollout restart deployment/"${RELEASE}-finance-agent" -n "${NAMESPACE}" >/dev/null 2>&1 || true
+  info "finance-agent restarted to pick up refreshed API keys."
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 4 — Preload third-party images
@@ -780,13 +789,13 @@ if timeout 5 kubectl get svc "techbleat-bank-user-service" -n "${NAMESPACE}" \
   || true  # non-fatal
 fi
 
-# 5. Finance agent (AI assistant direct access)
+# 5. Finance agent (AI assistant direct access) — runs on port 9001
 if timeout 5 kubectl get svc "techbleat-bank-finance-agent" -n "${NAMESPACE}" \
     >/dev/null 2>&1; then
   pf_ensure "finance-agent.*8082" \
-    "svc/techbleat-bank-finance-agent" "8082:8080" \
+    "svc/techbleat-bank-finance-agent" "8082:9001" \
     "${NAMESPACE}" "/tmp/pf-finance-agent.log" \
-    "finance-agent (8082→8080)" \
+    "finance-agent (8082→9001)" \
   || true  # non-fatal
 fi
 
@@ -833,6 +842,15 @@ else
   success "ArgoCD installed."
   phase_done "argocd"
 fi
+# Always apply the Application manifest so ignoreDifferences protects secrets
+# and auto-sync stays wired after ArgoCD restarts or a fresh install.
+_ARGOCD_APP="${REPO_ROOT}/k8s/argocd/application.yaml"
+if [ -f "${_ARGOCD_APP}" ]; then
+  kubectl apply -f "${_ARGOCD_APP}" >/dev/null 2>&1 \
+    && info "ArgoCD Application manifest applied (auto-sync + ignoreDifferences active)." \
+    || warn "ArgoCD Application manifest apply failed — run: kubectl apply -f k8s/argocd/application.yaml"
+fi
+
 if kubectl get svc argocd-server -n argocd >/dev/null 2>&1; then
   if ! pgrep -f "kubectl port-forward.*argocd" >/dev/null 2>&1; then
     pkill -f "kubectl port-forward.*argocd" 2>/dev/null || true
@@ -873,7 +891,7 @@ printf "\n  ── URLs ──────────────────�
   printf "  Public  :  https://banking-app.eaglesoncloude.com\n"
 printf "  Local   :  http://techbleat-bank.local  (needs netsh below)\n"
 printf "  Keycloak:  http://keycloak.techbleat-bank.local/admin\n"
-printf "  ArgoCD  :  http://localhost:8088\n"
+printf "  ArgoCD  :  https://argocd-banking.eaglesoncloude.com  (local: http://localhost:8088)\n"
 printf "  Demo    :  bankingdemo / Demo@2024\n"
 
 printf "\n  ── Windows netsh portproxy (run once as Admin after reboot) ──\n"
