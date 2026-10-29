@@ -29,13 +29,13 @@ spec:
 
   source:
     # ── UPDATE THIS to your actual GitHub repo URL ──────────────────────────
-    repoURL: https://github.com/YOUR_GITHUB_USER/sre2026-final-project.git
+    repoURL: https://github.com/jibolaolu/sre2026-final-project.git
     targetRevision: main
     path: k8s/helm/techbleat-bank
     helm:
       valueFiles:
         - values.yaml
-        - values-prod.yaml      # create this for prod-specific overrides
+        - values-local.yaml
 
   destination:
     server: https://kubernetes.default.svc
