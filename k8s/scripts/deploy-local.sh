@@ -97,7 +97,7 @@ KEYCLOAK_ADMIN_PASSWORD="$(printf '%s' "${KEYCLOAK_ADMIN_PASSWORD}" | tr -d '\r'
 KC_ADMIN_CLIENT_SECRET="$(printf '%s' "${KC_ADMIN_CLIENT_SECRET}" | tr -d '\r')"
 # Public-facing Keycloak URL baked into the frontend image at build time.
 # Set to https://auth.<your-domain> when using Cloudflare Tunnel; defaults to local.
-KEYCLOAK_PUBLIC_URL="$(printf '%s' "${KEYCLOAK_PUBLIC_URL:-http://keycloak.techbleat-bank.local}" | tr -d '\r')"
+KEYCLOAK_PUBLIC_URL="$(printf '%s' "${KEYCLOAK_PUBLIC_URL:-https://auth.eaglesoncloude.com}" | tr -d '\r')"
 
 # ── Registry: GHCR (recommended) or Docker Hub ───────────────────────────────
 # Set GITHUB_USERNAME in .env to push to ghcr.io/<username>/<service> (matches CI).
