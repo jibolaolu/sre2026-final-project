@@ -496,6 +496,23 @@ if [ "${SKIP_HELM}" = "0" ] && ([ "${HELM_STATUS}" != "deployed" ] || [ "${CURRE
     fi
   fi
 
+  # Helm adoption: secrets created by kubectl (Phase 3) lack Helm's ownership
+  # labels/annotations.  Helm refuses to install if it encounters an unowned
+  # resource that its chart also templates.  Annotate them first so Helm can
+  # adopt them without touching their data.
+  for _secret in banking-app-secrets cloudflare-tunnel-token; do
+    if kubectl get secret "${_secret}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+      kubectl annotate secret "${_secret}" -n "${NAMESPACE}" \
+        "meta.helm.sh/release-name=${RELEASE}" \
+        "meta.helm.sh/release-namespace=${NAMESPACE}" \
+        --overwrite 2>/dev/null || true
+      kubectl label secret "${_secret}" -n "${NAMESPACE}" \
+        "app.kubernetes.io/managed-by=Helm" \
+        --overwrite 2>/dev/null || true
+      info "Helm adoption labels applied to secret/${_secret}"
+    fi
+  done
+
   info "Running helm upgrade --install..."
   SET_ARGS=(
     "--set" "global.imageRegistry=${IMAGE_REGISTRY}"
