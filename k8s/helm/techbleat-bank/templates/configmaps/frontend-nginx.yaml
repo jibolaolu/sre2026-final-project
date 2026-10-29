@@ -17,10 +17,6 @@ data:
         listen 80;
         server_name _;
 
-        # Use Docker's internal DNS so upstream hostnames are resolved per-request,
-        # not at nginx startup — prevents "host not found in upstream" crashes.
-        resolver 127.0.0.11 valid=10s;
-
         root /usr/share/nginx/html;
         index index.html;
 
@@ -33,9 +29,8 @@ data:
 
         # FastAPI user service
         location /user-api/ {
-            set $upstream_user http://user-service:8000;
             rewrite ^/user-api/(.*)$ /$1 break;
-            proxy_pass $upstream_user;
+            proxy_pass http://user-service:8000;
 
             proxy_http_version 1.1;
             proxy_set_header Host $host;
@@ -50,9 +45,8 @@ data:
 
         # Spring Boot transaction service
         location /transaction-api/ {
-            set $upstream_txn http://transaction-service:8080;
             rewrite ^/transaction-api/(.*)$ /$1 break;
-            proxy_pass $upstream_txn;
+            proxy_pass http://transaction-service:8080;
 
             proxy_http_version 1.1;
             proxy_set_header Host $host;
@@ -67,9 +61,8 @@ data:
 
         # FastAPI activity service
         location /activity-api/ {
-            set $upstream_activity http://activity-service:8001;
             rewrite ^/activity-api/(.*)$ /$1 break;
-            proxy_pass $upstream_activity;
+            proxy_pass http://activity-service:8001;
 
             proxy_http_version 1.1;
             proxy_set_header Host $host;
@@ -84,9 +77,8 @@ data:
 
         # FinanceAgent API — Authorization header forwarded so JWT reaches finance-agent
         location /finance-agent-api/ {
-            set $upstream_agent http://finance-agent:9001;
             rewrite ^/finance-agent-api/(.*)$ /$1 break;
-            proxy_pass $upstream_agent;
+            proxy_pass http://finance-agent:9001;
 
             proxy_http_version 1.1;
             proxy_set_header Host $host;
