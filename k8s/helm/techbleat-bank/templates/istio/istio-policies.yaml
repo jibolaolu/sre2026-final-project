@@ -157,7 +157,7 @@ spec:
   rules:
   - to:
     - operation:
-        ports: ["8000"]
+        ports: ["9001"]
 
 ---
 apiVersion: security.istio.io/v1beta1

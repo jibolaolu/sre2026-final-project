@@ -59,6 +59,7 @@ tls:
 # ── Scale down for local resource constraints ────────────────────────────────
 keycloak:
   replicaCount: 1
+  productionMode: true   # true = start + PostgreSQL (persistent); false = start-dev + H2 (ephemeral)
   resources:
     requests:
       cpu: 300m
@@ -66,6 +67,14 @@ keycloak:
     limits:
       cpu: "1"
       memory: 1Gi
+  probes:
+    liveness:
+      initialDelaySeconds: 180   # production mode schema init needs extra time
+      periodSeconds: 20
+      failureThreshold: 5
+    readiness:
+      initialDelaySeconds: 90    # give PostgreSQL schema creation time on first boot
+      periodSeconds: 10
 
 userService:
   replicaCount: 1
@@ -79,11 +88,14 @@ transactionService:
   env:
     springDatasourceUrl: "jdbc:postgresql://postgres:5432/bankingdb?sslmode=disable"
     keycloakJwkSetUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
+    frontendOrigin: "https://banking-app.eaglesoncloude.com"
 
 activityService:
   replicaCount: 1
   autoscaling:
     enabled: false
+  env:
+    frontendOrigin: "https://banking-app.eaglesoncloude.com"
 
 financeAgent:
   replicaCount: 1
