@@ -80,11 +80,15 @@ userService:
   replicaCount: 1
   autoscaling:
     enabled: false
+  image:
+    tag: "723869d"
 
 transactionService:
   replicaCount: 1
   autoscaling:
     enabled: false
+  image:
+    tag: "723869d"
   env:
     springDatasourceUrl: "jdbc:postgresql://postgres:5432/bankingdb?sslmode=disable"
     keycloakJwkSetUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
@@ -94,6 +98,8 @@ activityService:
   replicaCount: 1
   autoscaling:
     enabled: false
+  image:
+    tag: "723869d"
   env:
     frontendOrigin: "https://banking-app.eaglesoncloude.com"
 
@@ -101,6 +107,8 @@ financeAgent:
   replicaCount: 1
   autoscaling:
     enabled: false
+  image:
+    tag: "723869d"
   proxy:
     # minikube Docker-driver on WSL2: pods cannot reach the internet directly.
     # The proxy script (k8s/scripts/k8s-proxy.py) must be running on WSL2.
@@ -112,6 +120,8 @@ frontend:
   replicaCount: 1
   autoscaling:
     enabled: false
+  image:
+    tag: "723869d"
 
 # ── Istio ─────────────────────────────────────────────────────────────────────
 # minikube installs Istio by default; set false if you skipped istio addon.
