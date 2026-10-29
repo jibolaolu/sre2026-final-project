@@ -526,16 +526,17 @@ if [ "${SKIP_HELM}" = "0" ] && ([ "${HELM_STATUS}" != "deployed" ] || [ "${CURRE
     "--set" "secrets.keycloakAdminPassword=${KEYCLOAK_ADMIN_PASSWORD}"
     "--set" "secrets.keycloakAdminClientSecret=${KC_ADMIN_CLIENT_SECRET}"
   )
-  [ -n "${OPENAI_API_KEY}"    ] && SET_ARGS+=("--set" "secrets.openaiApiKey=${OPENAI_API_KEY}")
-  [ -n "${ANTHROPIC_API_KEY}" ] && SET_ARGS+=("--set" "secrets.anthropicApiKey=${ANTHROPIC_API_KEY}")
-  [ -n "${DD_API_KEY}"        ] && SET_ARGS+=("--set" "secrets.datadogApiKey=${DD_API_KEY}")
+  [ -n "${OPENAI_API_KEY}"      ] && SET_ARGS+=("--set" "secrets.openaiApiKey=${OPENAI_API_KEY}")
+  [ -n "${ANTHROPIC_API_KEY}"  ] && SET_ARGS+=("--set" "secrets.anthropicApiKey=${ANTHROPIC_API_KEY}")
+  [ -n "${DD_API_KEY}"         ] && SET_ARGS+=("--set" "secrets.datadogApiKey=${DD_API_KEY}")
+  [ -n "${DEMO_USER_PASSWORD}" ] && SET_ARGS+=("--set" "secrets.keycloakDemoPassword=${DEMO_USER_PASSWORD}")
 
   helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
     --namespace "${NAMESPACE}" --create-namespace \
     -f "${CHART_DIR}/values.yaml" \
     -f "${CHART_DIR}/values-local.yaml" \
     "${SET_ARGS[@]}" \
-    --timeout 15m
+    --timeout 20m
   success "Helm deploy complete."
   phase_done "helm-deploy"
 fi

@@ -148,7 +148,6 @@ jobs:
 
       - name: Trivy vulnerability scan
         if: steps.registry-login.outcome == 'success'
-        continue-on-error: true   # findings upload to Security tab via SARIF; don't block on OS-level CVEs
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ steps.lower.outputs.prefix }}/${{ matrix.service }}:${{ steps.meta.outputs.version || 'latest' }}

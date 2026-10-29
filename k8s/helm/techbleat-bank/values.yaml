@@ -41,6 +41,7 @@ secrets:
   openaiApiKey: "changeme"
   anthropicApiKey: "changeme"
   datadogApiKey: "changeme"
+  keycloakDemoPassword: "Demo@2024"  # demo user; override via --set or .env DEMO_USER_PASSWORD
   redisPassword: ""          # set to enable Redis AUTH; leave empty for no-auth (local only)
 
 # ── Observability ─────────────────────────────────────────────────────────────
