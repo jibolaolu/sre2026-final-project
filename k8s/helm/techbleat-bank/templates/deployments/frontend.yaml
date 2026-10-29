@@ -17,6 +17,8 @@ spec:
       labels:
         {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: frontend
+      annotations:
+        checksum/nginx-config: {{ include (print $.Template.BasePath "/configmaps/frontend-nginx.yaml") . | sha256sum }}
     spec:
       serviceAccountName: frontend
       containers:
