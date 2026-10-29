@@ -139,7 +139,7 @@ else
     --profile "${CLUSTER_NAME}" \
     --driver=docker \
     --cpus=4 \
-    --memory=6g \
+    --memory=10g \
     --disk-size=30g
   success "minikube started."
   phase_done "minikube"
@@ -199,6 +199,30 @@ else
   warn "k8s/manifests/local-pvs.yaml not found — PVCs may stay Pending if provisioner is missing."
   phase_warned "local-pvs"
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 2.9 — Istio control plane (must run BEFORE Helm deploy so that the
+# security.istio.io/v1beta1 CRDs exist when istio.enabled=true is rendered)
+# ─────────────────────────────────────────────────────────────────────────────
+printf "\n${BOLD}━━ Phase 2.9: Istio control plane ━━━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
+if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
+  skip "Istio (istiod already running)"
+  phase_skipped "istio-install"
+else
+  info "Installing Istio control plane via Helm (minimal profile)..."
+  helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
+  helm repo update istio 2>/dev/null || true
+  kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
+  helm upgrade --install istio-base istio/base \
+    -n istio-system --wait --timeout=120s
+  helm upgrade --install istiod istio/istiod \
+    -n istio-system --wait --timeout=300s
+  success "Istio control plane (istiod) installed."
+  phase_done "istio-install"
+fi
+# Label the banking namespace so new pods get Envoy sidecars injected at startup.
+# Existing pods are restarted later in Phase 9 after the app is deployed.
+kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite 2>/dev/null || true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 3 — Kubernetes namespace + secrets
@@ -578,25 +602,34 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PHASE 9 — Istio service mesh
+# PHASE 9 — Istio sidecar injection (post-deploy)
+# Restart all banking pods so Envoy sidecars are injected into every running
+# container.  Skipped when sidecars are already present (2/2 ready containers).
 # ─────────────────────────────────────────────────────────────────────────────
-printf "\n${BOLD}━━ Phase 9: Istio ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
-if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
-  skip "Istio (istiod)"
-  phase_skipped "istio"
+printf "\n${BOLD}━━ Phase 9: Istio sidecar injection ━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
+if ! kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
+  warn "istiod not found — Istio sidecar injection skipped."
+  phase_warned "istio-sidecars"
 else
-  info "Installing Istio..."
-  helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
-  helm repo update istio 2>/dev/null || true
-  kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
-  helm upgrade --install istio-base   istio/base      -n istio-system --wait --timeout=120s
-  helm upgrade --install istiod       istio/istiod    -n istio-system --wait --timeout=300s
-  helm upgrade --install istio-ingressgateway istio/gateway \
-    -n istio-system --wait --timeout=120s --set service.type=NodePort
-  success "Istio installed."
-  phase_done "istio"
+  # Check whether any pod in the banking namespace lacks the istio-proxy container.
+  # A pod with sidecars shows 2+ containers in READY column (e.g. 2/2).
+  _PODS_WITHOUT_SIDECAR=$(kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null \
+    | awk '{split($2,r,"/"); if (r[2]=="1") print $1}' | head -5 || true)
+  if [ -z "${_PODS_WITHOUT_SIDECAR}" ]; then
+    skip "Istio sidecars (all pods already have 2+ containers)"
+    phase_skipped "istio-sidecars"
+  else
+    info "Restarting banking pods to inject Envoy sidecars..."
+    kubectl rollout restart deployment -n "${NAMESPACE}" 2>/dev/null || true
+    kubectl rollout restart statefulset -n "${NAMESPACE}" 2>/dev/null || true
+    info "Waiting for pods to come back up with sidecars (max 5 min)..."
+    kubectl wait pods -n "${NAMESPACE}" \
+      --for=condition=ready --all --timeout=300s 2>/dev/null \
+      && success "All pods ready with Envoy sidecars." \
+      || warn "Some pods slow to restart — check: kubectl get pods -n ${NAMESPACE}"
+    phase_done "istio-sidecars"
+  fi
 fi
-kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite 2>/dev/null || true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 10 — Datadog Agent
