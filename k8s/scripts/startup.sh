@@ -175,6 +175,32 @@ kubectl delete validatingwebhookconfigurations ingress-nginx-admission \
   --ignore-not-found 2>/dev/null || true
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PHASE 2.5 — Local PersistentVolumes
+# The minikube storage-provisioner can go missing after node restarts.  We
+# pre-create hostPath PVs for kafka-data, postgres-backup, and redis-backup so
+# PVCs bind immediately even when the provisioner is absent.
+# ─────────────────────────────────────────────────────────────────────────────
+printf "\n${BOLD}━━ Phase 2.5: Local PersistentVolumes ━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
+_LOCAL_PVS="${SCRIPT_DIR}/../manifests/local-pvs.yaml"
+if [ -f "${_LOCAL_PVS}" ]; then
+  # Clear stale claimRef on any Released PV so it becomes Available for new PVCs.
+  for _pv in kafka-data-pv postgres-backup-pv redis-backup-pv; do
+    _pv_phase=$(kubectl get pv "${_pv}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [ "${_pv_phase}" = "Released" ]; then
+      info "Clearing Released claimRef on ${_pv} → Available"
+      kubectl patch pv "${_pv}" --type=json \
+        -p='[{"op":"remove","path":"/spec/claimRef"}]' 2>/dev/null || true
+    fi
+  done
+  kubectl apply -f "${_LOCAL_PVS}" >/dev/null
+  success "Local PVs applied (kafka-data-pv, postgres-backup-pv, redis-backup-pv)."
+  phase_done "local-pvs"
+else
+  warn "k8s/manifests/local-pvs.yaml not found — PVCs may stay Pending if provisioner is missing."
+  phase_warned "local-pvs"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PHASE 3 — Kubernetes namespace + secrets
 # ─────────────────────────────────────────────────────────────────────────────
 printf "\n${BOLD}━━ Phase 3: Namespace + secrets ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
@@ -357,6 +383,17 @@ esac
 if [ "${SKIP_BUILD}" != "1" ]; then
   kubectl delete pvc "kafka-data-${RELEASE}-kafka-0" -n "${NAMESPACE}" \
     --ignore-not-found --wait=false 2>/dev/null || true
+  # PVC deletion moves our Retain PV to Released. Clear the claimRef now so the
+  # new PVC that Helm creates can bind immediately (no provisioner needed).
+  sleep 2
+  for _pv in kafka-data-pv postgres-backup-pv redis-backup-pv; do
+    _pv_phase=$(kubectl get pv "${_pv}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [ "${_pv_phase}" = "Released" ]; then
+      kubectl patch pv "${_pv}" --type=json \
+        -p='[{"op":"remove","path":"/spec/claimRef"}]' 2>/dev/null || true
+      info "Cleared Released claimRef on ${_pv}"
+    fi
+  done
 fi
 
 

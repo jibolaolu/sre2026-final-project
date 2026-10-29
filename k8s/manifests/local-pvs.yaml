@@ -1,0 +1,61 @@
+# local-pvs.yaml — Manual hostPath PersistentVolumes for local (minikube/kind) clusters.
+#
+# The minikube storage-provisioner handles PVC binding automatically when the cluster is
+# healthy, but the provisioner pod can go missing after node restarts or cluster re-creates.
+# These PVs are pre-created with Retain policy so data survives pod restarts.
+#
+# startup.sh applies this file in Phase 2.5 (before the Helm deploy) and clears stale
+# claimRefs on Released PVs so new PVCs can bind after a fresh install.
+#
+# DO NOT use in production (EKS/GKE/AKS) — use a cloud StorageClass instead.
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: kafka-data-pv
+  labels:
+    app.kubernetes.io/managed-by: startup.sh
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: standard
+  hostPath:
+    path: /tmp/k8s-hostpath/kafka-data
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-backup-pv
+  labels:
+    app.kubernetes.io/managed-by: startup.sh
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: standard
+  hostPath:
+    path: /tmp/k8s-hostpath/postgres-backup
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: redis-backup-pv
+  labels:
+    app.kubernetes.io/managed-by: startup.sh
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: standard
+  hostPath:
+    path: /tmp/k8s-hostpath/redis-backup
+    type: DirectoryOrCreate
