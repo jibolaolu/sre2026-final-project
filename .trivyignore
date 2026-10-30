@@ -6,3 +6,10 @@
 # TODO: remove once transaction-service migrates to Java 21 + Spring Boot 4.x.
 CVE-2026-47884
 CVE-2026-47890
+
+# CVE-2026-68525 / CVE-2026-65905 / CVE-2026-65182 — CRITICAL — tomcat-embed-core
+# Fixed in Tomcat 10.1.58 which has NOT yet been released to Maven Central (2026-10-30).
+# Currently pinned to 10.1.55 (latest available). Remove when 10.1.58 ships.
+CVE-2026-68525
+CVE-2026-65905
+CVE-2026-65182
