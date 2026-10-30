@@ -12,3 +12,10 @@ CVE-2026-47890
 # by kafka-clients does not have this CVE. Trivy is matching the wrong groupId.
 # Accepted risk: low exploitability for a codec library in a Kafka consumer.
 CVE-2026-106451
+
+# CVE-2026-54704 — MEDIUM — opentelemetry-javaagent (JDBC logging clear-text credentials)
+# Fix is only available in 2.28.0-alpha (pre-release); no stable release yet.
+# Mitigated: JDBC auto-instrumentation debug logging is disabled in production
+# (JAVA_TOOL_OPTIONS only activates the agent when explicitly set; debug logging off by default).
+# TODO: remove once OTel Java instrumentation 2.28.0 stable is released.
+CVE-2026-54704

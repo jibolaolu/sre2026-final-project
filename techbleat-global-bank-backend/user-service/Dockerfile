@@ -6,11 +6,11 @@ WORKDIR /app
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --upgrade "pip==26.1.2" && pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade "pip==26.2.2" && pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY migrations ./migrations
+COPY alembic.ini .
 
-# Run from inside the app/ directory so bare `from telemetry import ...`
-# resolves to app/telemetry.py without needing the `app.` prefix.
-WORKDIR /app/app
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run alembic migrations then start uvicorn from app/ (so bare imports resolve correctly).
+CMD ["sh", "-c", "alembic upgrade head && cd app && uvicorn main:app --host 0.0.0.0 --port 8000"]
