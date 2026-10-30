@@ -51,14 +51,17 @@ spec:
                 secretKeyRef:
                   name: banking-app-secrets
                   key: keycloak-admin-password
-            # KC_HOSTNAME: hostname only (no scheme). Keycloak derives the scheme from
-            # X-Forwarded-Proto forwarded by nginx (use-forwarded-headers=true in ingress-nginx ConfigMap).
+            # KC_HOSTNAME must be a bare hostname (no scheme). Keycloak 24 with
+            # KC_PROXY=edge determines the issuer scheme from the X-Forwarded-Proto
+            # header sent by the ingress controller. Passing a full URL (https://...)
+            # causes Keycloak to treat it as a raw hostname and prepend http://,
+            # producing a malformed issuer like "http://https//host/realms/banking".
             - name: KC_HOSTNAME
-              value: {{ .Values.publicKeycloakUrl | default "http://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
+              value: {{ .Values.publicKeycloakUrl | default "https://keycloak.techbleat-bank.local" | trimPrefix "https://" | trimPrefix "http://" | quote }}
             - name: KC_HOSTNAME_STRICT
-              value: "false"
+              value: "true"
             - name: KC_HOSTNAME_STRICT_HTTPS
-              value: "false"
+              value: "true"
             # KC_HOSTNAME_ADMIN_URL: full URL for admin console — avoids Keycloak
             # appending the ingress port (e.g. :80) to the admin redirect URL.
             # Must NOT be set together with KC_HOSTNAME_ADMIN (Keycloak rejects both).

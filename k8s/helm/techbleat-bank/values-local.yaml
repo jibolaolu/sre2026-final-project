@@ -110,11 +110,11 @@ financeAgent:
   image:
     tag: "723869d"
   proxy:
-    # minikube Docker-driver on WSL2: pods cannot reach the internet directly.
-    # The proxy script (k8s/scripts/k8s-proxy.py) must be running on WSL2.
-    # 192.168.58.1 is the Docker bridge gateway — always reachable from pods.
-    httpsProxy: "http://192.168.58.1:3128"
-    noProxy: "keycloak,transaction-service,activity-service,user-service,redis,kafka,postgres,otel-collector,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.cluster.local,.svc"
+    # Leave empty to let pods connect to OpenAI/Anthropic directly via the
+    # allow-finance-agent-external-api NetworkPolicy (port 443 egress, no to: selector).
+    # The WSL2 HTTPS_PROXY approach had TCP-level CONNECT resets due to Docker iptables.
+    httpsProxy: ""
+    noProxy: ""
 
 frontend:
   replicaCount: 1

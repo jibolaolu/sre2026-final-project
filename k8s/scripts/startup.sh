@@ -163,10 +163,8 @@ else
     --set controller.admissionWebhooks.enabled=false \
     --set controller.image.pullPolicy=IfNotPresent \
     --set controller.image.digest=""
-  kubectl wait --namespace ingress-nginx \
-    --for=condition=ready pod \
-    --selector=app.kubernetes.io/component=controller \
-    --timeout=300s
+  kubectl rollout status deployment/ingress-nginx-controller \
+    --namespace ingress-nginx --timeout=300s
   success "ingress-nginx installed."
   phase_done "ingress-nginx"
 fi
@@ -251,6 +249,37 @@ else
   phase_warned "cloudflare-token missing"
 fi
 phase_done "secrets"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 3.5 — Sync postgres bankuser password
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 3 always syncs the secret from .env. If .env changed since postgres
+# was first initialized, the postgres bankuser password will differ from the
+# secret — causing Keycloak and transaction-service to fail with
+# "FATAL: password authentication failed" on any new pod.
+#
+# Fix: connect via unix socket (trust auth — no Kube secret read needed) and
+# ALTER USER to sync postgres to whatever is now in POSTGRES_PASSWORD.
+# Idempotent and safe on every startup.
+printf "\n${BOLD}━━ Phase 3.5: Postgres password sync ━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
+_PG_SYNC=$(kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null \
+  | awk '/techbleat-bank-postgres/{print $1; exit}' || echo "")
+if [ -n "${_PG_SYNC}" ]; then
+  kubectl wait pod "${_PG_SYNC}" -n "${NAMESPACE}" \
+    --for=condition=ready --timeout=30s >/dev/null 2>&1 || true
+  if kubectl exec "${_PG_SYNC}" -n "${NAMESPACE}" -c postgres -- \
+    psql -U bankuser -d postgres -c \
+    "ALTER USER bankuser WITH PASSWORD '${POSTGRES_PASSWORD}'" >/dev/null 2>&1; then
+    success "postgres bankuser password synced to match secret."
+    phase_done "postgres-password-sync"
+  else
+    warn "postgres bankuser password sync failed — Keycloak may fail to connect."
+    phase_warned "postgres-password-sync"
+  fi
+else
+  skip "postgres not yet running — bankuser password sync will run on next startup after postgres starts."
+  phase_skipped "postgres-password-sync"
+fi
 
 # Restart finance-agent if it's already running so it picks up the freshly
 # synced API keys from banking-app-secrets (needed after ArgoCD secret wipes).
@@ -466,7 +495,7 @@ if [ "${SKIP_BUILD}" = "1" ]; then
   fi
 fi
 
-if [ "${SKIP_HELM}" = "0" ] && ([ "${HELM_STATUS}" != "deployed" ] || [ "${CURRENT_TAG:-}" != "${IMAGE_TAG}" ] || [ "${SKIP_BUILD}" != "1" ]); then
+if [ "${SKIP_HELM}" = "0" ] && ([ "${FORCE_DEPLOY}" = "1" ] || [ "${HELM_STATUS}" != "deployed" ] || [ "${CURRENT_TAG:-}" != "${IMAGE_TAG}" ] || [ "${SKIP_BUILD}" != "1" ]); then
   # Pre-create keycloakdb if postgres is already running (init scripts only run on fresh PVC).
   # This must happen BEFORE the helm upgrade so Keycloak productionMode can start cleanly.
   _PRE_PG=$(timeout 5 kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null \
@@ -513,6 +542,32 @@ if [ "${SKIP_HELM}" = "0" ] && ([ "${HELM_STATUS}" != "deployed" ] || [ "${CURRE
     fi
   done
 
+  # Helm adoption: NetworkPolicies that were kubectl-applied directly (e.g. as live
+  # hotfixes) also lack ownership metadata. Adopt them before helm upgrade.
+  for _np in allow-istio-control-plane-egress allow-cloudflared-egress allow-frontend-egress; do
+    if kubectl get networkpolicy "${_np}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+      kubectl annotate networkpolicy "${_np}" -n "${NAMESPACE}" \
+        "meta.helm.sh/release-name=${RELEASE}" \
+        "meta.helm.sh/release-namespace=${NAMESPACE}" \
+        --overwrite 2>/dev/null || true
+      kubectl label networkpolicy "${_np}" -n "${NAMESPACE}" \
+        "app.kubernetes.io/managed-by=Helm" \
+        --overwrite 2>/dev/null || true
+      info "Helm adoption labels applied to networkpolicy/${_np}"
+    fi
+  done
+
+  # Suspend ArgoCD auto-sync before upgrading so ArgoCD does not reconcile
+  # the release back to git state and overwrite our env changes mid-deploy.
+  # ArgoCD tracking annotation on the Keycloak deployment confirms it manages this app.
+  if kubectl get application "${RELEASE}" -n argocd >/dev/null 2>&1; then
+    info "Suspending ArgoCD auto-sync for ${RELEASE} (prevents silent reverts during deploy)..."
+    kubectl patch application "${RELEASE}" -n argocd \
+      --type=merge -p '{"spec":{"syncPolicy":{"automated":null}}}' 2>/dev/null \
+      && info "ArgoCD auto-sync suspended." \
+      || warn "Could not patch ArgoCD app — continuing without suspension."
+  fi
+
   info "Running helm upgrade --install..."
   SET_ARGS=(
     "--set" "global.imageRegistry=${IMAGE_REGISTRY}"
@@ -526,19 +581,26 @@ if [ "${SKIP_HELM}" = "0" ] && ([ "${HELM_STATUS}" != "deployed" ] || [ "${CURRE
     "--set" "secrets.keycloakAdminPassword=${KEYCLOAK_ADMIN_PASSWORD}"
     "--set" "secrets.keycloakAdminClientSecret=${KC_ADMIN_CLIENT_SECRET}"
   )
-  [ -n "${OPENAI_API_KEY}"      ] && SET_ARGS+=("--set" "secrets.openaiApiKey=${OPENAI_API_KEY}")
-  [ -n "${ANTHROPIC_API_KEY}"  ] && SET_ARGS+=("--set" "secrets.anthropicApiKey=${ANTHROPIC_API_KEY}")
-  [ -n "${DD_API_KEY}"         ] && SET_ARGS+=("--set" "secrets.datadogApiKey=${DD_API_KEY}")
-  [ -n "${DEMO_USER_PASSWORD}" ] && SET_ARGS+=("--set" "secrets.keycloakDemoPassword=${DEMO_USER_PASSWORD}")
+  [ -n "${OPENAI_API_KEY:-}"      ] && SET_ARGS+=("--set" "secrets.openaiApiKey=${OPENAI_API_KEY}")
+  [ -n "${ANTHROPIC_API_KEY:-}"  ] && SET_ARGS+=("--set" "secrets.anthropicApiKey=${ANTHROPIC_API_KEY}")
+  [ -n "${DD_API_KEY:-}"         ] && SET_ARGS+=("--set" "secrets.datadogApiKey=${DD_API_KEY}")
+  [ -n "${DEMO_USER_PASSWORD:-}" ] && SET_ARGS+=("--set" "secrets.keycloakDemoPassword=${DEMO_USER_PASSWORD}")
 
+  _HELM_OK=0
   helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
     --namespace "${NAMESPACE}" --create-namespace \
     -f "${CHART_DIR}/values.yaml" \
     -f "${CHART_DIR}/values-local.yaml" \
     "${SET_ARGS[@]}" \
-    --timeout 20m
-  success "Helm deploy complete."
-  phase_done "helm-deploy"
+    --timeout 20m && _HELM_OK=1 || true
+  if [ "${_HELM_OK}" = "1" ]; then
+    success "Helm deploy complete."
+    phase_done "helm-deploy"
+  else
+    warn "Helm deploy failed (commonly a hook timeout — Keycloak races postgres init on fresh clusters)."
+    warn "Phase 6.5 will fix dependencies (keycloakdb + password sync), then Phase 6.5b will retry."
+    phase_warned "helm-deploy-partial"
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -547,8 +609,14 @@ fi
 # scripts only run on a fresh PVC — on existing installs we must create it here.
 # ─────────────────────────────────────────────────────────────────────────────
 printf "\n${BOLD}━━ Phase 6.5: keycloakdb database ━━━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
-_PG_POD=$(timeout 10 kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null \
-  | awk '/techbleat-bank-postgres/{print $1; exit}')
+# After a helm upgrade the postgres pod may be briefly recreating — retry up to 60s.
+_PG_POD=""
+for _pg_i in $(seq 1 12); do
+  _PG_POD=$(kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null \
+    | awk '/techbleat-bank-postgres/{print $1; exit}') || true
+  [ -n "${_PG_POD}" ] && break
+  sleep 5
+done
 if [ -n "${_PG_POD}" ]; then
   # Wait for postgres to be ready (max 120s)
   # Wait for postgres (kubectl wait is more reliable than jsonpath container readiness)
@@ -576,9 +644,46 @@ if [ -n "${_PG_POD}" ]; then
       phase_warned "keycloakdb"
     fi
   fi
+
+  # ── Post-deploy bankuser password sync ──────────────────────────────────────
+  # Phase 3.5 skips this on fresh clusters (postgres not running at that point).
+  # Running it here (after Helm deploys postgres) ensures the password inside
+  # postgres always matches the secret. Idempotent and safe on every startup.
+  if kubectl exec "${_PG_POD}" -n "${NAMESPACE}" -c postgres -- \
+      psql -U bankuser -d postgres -c \
+      "ALTER USER bankuser WITH PASSWORD '${POSTGRES_PASSWORD}'" >/dev/null 2>&1; then
+    success "postgres bankuser password synced (post-deploy)."
+    for _dep_svc in user-service transaction-service; do
+      kubectl rollout restart deployment/"${RELEASE}-${_dep_svc}" \
+        -n "${NAMESPACE}" >/dev/null 2>&1 || true
+    done
+    info "Restarted user-service and transaction-service to re-establish postgres connections."
+  else
+    warn "postgres bankuser password sync (post-deploy) failed — check postgres logs."
+  fi
 else
   warn "No postgres pod found — keycloakdb check skipped."
   phase_warned "keycloakdb"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 6.5b — Helm retry after fresh-cluster hook timeout
+# On a fresh cluster, Keycloak races postgres initialization. The provisioner
+# hook fires before Keycloak is ready → hook times out → Helm exits non-zero.
+# Phase 6.5 just created keycloakdb and synced the bankuser password, so a
+# second Helm upgrade succeeds because Keycloak can start cleanly.
+# ─────────────────────────────────────────────────────────────────────────────
+if [ "${_HELM_OK:-1}" = "0" ] && [ "${SKIP_HELM:-0}" = "0" ]; then
+  printf "\n${BOLD}━━ Phase 6.5b: Helm retry ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
+  info "Retrying Helm deploy (keycloakdb exists, password synced — Keycloak can now start cleanly)..."
+  helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
+    --namespace "${NAMESPACE}" --create-namespace \
+    -f "${CHART_DIR}/values.yaml" \
+    -f "${CHART_DIR}/values-local.yaml" \
+    "${SET_ARGS[@]}" \
+    --timeout 20m
+  success "Helm deploy complete (retry succeeded)."
+  phase_done "helm-deploy-retry"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -592,6 +697,31 @@ if kubectl rollout status deployment/"${RELEASE}-keycloak" \
 else
   warn "Keycloak not ready in 8 min — continuing. Check: kubectl logs -n ${NAMESPACE} -l app.kubernetes.io/component=keycloak"
   phase_warned "keycloak-slow"
+fi
+
+# Verify Keycloak OIDC issuer setup.
+# IMPORTANT: With KC_PROXY=edge, Keycloak determines the issuer scheme from the
+# X-Forwarded-Proto header. Internal pod-to-pod requests (http://keycloak:8080/...)
+# carry no X-Forwarded-Proto, so the discovery endpoint always returns http://.
+# This is EXPECTED — real JWT tokens are issued via the ingress (https://) and
+# carry the correct https:// issuer. We verify KEYCLOAK_ISSUER in user-service
+# is configured correctly instead.
+_US_POD=$(kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null \
+  | awk '/techbleat-bank-user-service.*Running/{print $1; exit}' || echo "")
+if [ -n "${_US_POD}" ]; then
+  _KC_ISSUER_ENV=$(kubectl exec "${_US_POD}" -n "${NAMESPACE}" -c user-service -- \
+    bash -c "echo \$KEYCLOAK_ISSUER" 2>/dev/null || echo "")
+  if echo "${_KC_ISSUER_ENV}" | grep -q "^https://"; then
+    success "KEYCLOAK_ISSUER in user-service: ${_KC_ISSUER_ENV} (https:// ✓)"
+    phase_done "keycloak-issuer"
+  elif [ -n "${_KC_ISSUER_ENV}" ]; then
+    warn "KEYCLOAK_ISSUER in user-service is not https://: ${_KC_ISSUER_ENV}"
+    warn "  Check publicKeycloakUrl in values-local.yaml — it must start with https://"
+    phase_warned "keycloak-issuer"
+  else
+    warn "Could not read KEYCLOAK_ISSUER from user-service pod."
+    phase_warned "keycloak-issuer"
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
