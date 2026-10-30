@@ -1,8 +1,8 @@
-# CVE-2026-47884 — CRITICAL — org.springframework:spring-webmvc
-# Fixed in spring-webmvc 7.0.9 (Spring Framework 7.x) only.
-# Spring Framework 7.x requires Spring Boot 4.x, which requires Java 21.
-# transaction-service currently targets Java 17; Java 21 migration is tracked separately.
-# Accepted risk: this CVE requires an XsltView-based endpoint to be exploitable,
-# which transaction-service does not expose.
-# TODO: remove this entry once transaction-service is migrated to Java 21 + Spring Boot 4.x.
+# CVE-2026-47884 / CVE-2026-47890 — CRITICAL — org.springframework:spring-webmvc
+# Both fixed only in Spring Framework 7.0.9 (Spring Boot 4.x requires Java 21).
+# transaction-service targets Java 17; Boot 4.x migration tracked separately.
+# Accepted risk: these CVEs require XsltView-based endpoints which transaction-service
+# does not expose.
+# TODO: remove once transaction-service migrates to Java 21 + Spring Boot 4.x.
 CVE-2026-47884
+CVE-2026-47890
