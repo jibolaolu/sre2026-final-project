@@ -6,3 +6,9 @@
 # TODO: remove once transaction-service migrates to Java 21 + Spring Boot 4.x.
 CVE-2026-47884
 CVE-2026-47890
+
+# CVE-2026-106451 — HIGH — at.yawk.lz4:lz4-java (transitive via kafka-clients)
+# The fix (1.11.4) is in the at.yawk.lz4 fork; the canonical org.lz4:lz4-java used
+# by kafka-clients does not have this CVE. Trivy is matching the wrong groupId.
+# Accepted risk: low exploitability for a codec library in a Kafka consumer.
+CVE-2026-106451

@@ -20,10 +20,6 @@
         <tomcat.version>10.1.59</tomcat.version>
         <!-- Spring Framework 6.2.19 fixes CVE-2026-41842/41845/41850 (HIGH). -->
         <spring-framework.version>6.2.19</spring-framework.version>
-        <!-- Jackson 2.18.11 fixes CVE-2026-54512/54513/68494/68497/89407/89425/91776/91777. -->
-        <jackson-bom.version>2.18.11</jackson-bom.version>
-        <!-- Spring Data 3.5.12 fixes CVE-2026-41695/41716 (HIGH). -->
-        <spring-data-bom.version>3.5.12</spring-data-bom.version>
         <!-- Spring Kafka 3.3.16 fixes CVE-2026-41731 (HIGH). -->
         <spring-kafka.version>3.3.16</spring-kafka.version>
         <!-- Micrometer 1.15.12 fixes CVE-2026-40983/40984 (HIGH). -->
@@ -31,6 +27,30 @@
         <!-- PostgreSQL 42.7.12 fixes CVE-2026-54291/CVE-2026-42198/CVE-2025-49146 (HIGH). -->
         <postgresql.version>42.7.12</postgresql.version>
     </properties>
+
+    <!-- Override specific managed versions that Spring Boot 3.5.14 doesn't yet bring to the
+         patched release. These supplement (and take precedence over) the Boot BOM. -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring Data 3.5.12: fixes CVE-2026-41695/41716 (HIGH in spring-data-commons). -->
+            <dependency>
+                <groupId>org.springframework.data</groupId>
+                <artifactId>spring-data-commons</artifactId>
+                <version>3.5.12</version>
+            </dependency>
+            <!-- Jackson 2.18.11: fixes CVE-2026-54512/54513/68494/68497/89407/89425/91776/91777. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>2.18.11</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>2.18.11</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -89,12 +109,6 @@
             <groupId>org.xerial.snappy</groupId>
             <artifactId>snappy-java</artifactId>
             <version>1.1.10.9</version>
-        </dependency>
-        <!-- lz4-java 1.11.4 fixes CVE-2026-106451 (HIGH). Transitive from kafka-clients. -->
-        <dependency>
-            <groupId>at.yawk.lz4</groupId>
-            <artifactId>lz4-java</artifactId>
-            <version>1.11.4</version>
         </dependency>
     </dependencies>
 
