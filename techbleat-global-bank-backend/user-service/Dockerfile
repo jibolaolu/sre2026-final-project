@@ -1,6 +1,9 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
+
+# Upgrade OS packages to pick up latest security patches before installing deps.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

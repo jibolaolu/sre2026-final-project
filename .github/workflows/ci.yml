@@ -148,7 +148,7 @@ jobs:
 
       - name: Trivy vulnerability scan
         if: steps.registry-login.outcome == 'success'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ steps.lower.outputs.prefix }}/${{ matrix.service }}:${{ steps.meta.outputs.version || 'latest' }}
           format: sarif
