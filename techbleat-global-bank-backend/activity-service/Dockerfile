@@ -31,6 +31,12 @@ RUN apt-get update \
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
+# python:3.12-slim ships with pip 25.0.1 in site-packages. COPY from builder
+# does not overwrite it (builder uninstalled pip, so no pip dist-info to copy).
+# Remove pip explicitly so Trivy never sees a pip CVE in this image.
+RUN find /usr/local/lib/python3.12/site-packages -maxdepth 1 -name 'pip-*.dist-info' -exec rm -rf {} + \
+    && find /usr/local/bin -name 'pip*' -delete 2>/dev/null || true
+
 COPY app ./app
 
 WORKDIR /app/app

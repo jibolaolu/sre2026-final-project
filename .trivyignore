@@ -7,10 +7,21 @@
 CVE-2026-47884
 CVE-2026-47890
 
+# CVE-2026-106449 / CVE-2026-59949 / CVE-2026-106450 / CVE-2026-106452 / CVE-2026-106453
+# HIGH/MEDIUM — org.lz4:lz4-java 1.10.1 (transitive via kafka-clients in transaction-service)
+# Trivy reports these as fixed in 1.11.x, but 1.11.x exists only in the at.yawk.lz4 fork;
+# the canonical org.lz4:lz4-java in Maven Central is at 1.10.1 with no stable upgrade path.
+# GitHub Code Scanning re-rates all five as LOW or MEDIUM.
+# Accepted risk: lz4 is a codec used for Kafka message compression, not exposed externally.
+# TODO: remove once kafka-clients ships with an updated lz4-java or org.lz4 releases 1.11.x.
+CVE-2026-106449
+CVE-2026-59949
+CVE-2026-106450
+CVE-2026-106452
+CVE-2026-106453
+
 # CVE-2026-106451 — HIGH — at.yawk.lz4:lz4-java (transitive via kafka-clients)
-# The fix (1.11.4) is in the at.yawk.lz4 fork; the canonical org.lz4:lz4-java used
-# by kafka-clients does not have this CVE. Trivy is matching the wrong groupId.
-# Accepted risk: low exploitability for a codec library in a Kafka consumer.
+# Trivy sometimes matches the at.yawk.lz4 fork groupId separately. Same acceptance rationale.
 CVE-2026-106451
 
 # CVE-2026-54704 — MEDIUM — opentelemetry-javaagent (JDBC logging clear-text credentials)
