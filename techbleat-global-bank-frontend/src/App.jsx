@@ -92,18 +92,60 @@ export default function TechbleatGlobalBankCustomerApp() {
   const [twoFAPending, setTwoFAPending] = useState(null); // callback fn
   const [twoFAError, setTwoFAError] = useState("");
 
-  // ── Card state (persisted per user) ───────────────────────────────────────
-  const [cardState, setCardState] = useState(null); // loaded after userId known
-  function loadCardState(userId) {
+  // ── Card state (persisted in DB via user-service, localStorage as fallback) ──
+  const [cardState, setCardState] = useState(null);
+  const cardStateRef = useRef(null);
+  useEffect(() => { cardStateRef.current = cardState; }, [cardState]);
+
+  function _localCardFallback(userId) {
     const saved = lsGet(`techbleat_card_${userId}`, null);
     if (saved) return saved;
     const fresh = { number: generateCardNumber(), expiry: generateExpiry(), frozen: false, pin: null, limit: 2000 };
     lsSet(`techbleat_card_${userId}`, fresh);
     return fresh;
   }
-  function saveCardState(userId, state) {
-    setCardState(state);
-    lsSet(`techbleat_card_${userId}`, state);
+
+  async function loadCardFromAPI(userId) {
+    try {
+      const data = await api(`${USER_API}/users/${userId}/card`);
+      const local = lsGet(`techbleat_card_${userId}`, {});
+      const state = {
+        number: data.card_number,
+        expiry: data.expiry,
+        frozen: data.frozen,
+        pin: data.pin_set ? (local.pin || null) : null,
+        limit: data.daily_limit,
+      };
+      lsSet(`techbleat_card_${userId}`, state);
+      setCardState(state);
+    } catch {
+      setCardState(_localCardFallback(userId));
+    }
+  }
+
+  async function handleCardUpdate(userId, newState) {
+    const prev = cardStateRef.current || {};
+    // Optimistic local update immediately
+    setCardState(newState);
+    lsSet(`techbleat_card_${userId}`, newState);
+    try {
+      if (newState.frozen !== prev.frozen) {
+        await api(`${USER_API}/users/${userId}/card/${newState.frozen ? "freeze" : "unfreeze"}`, { method: "POST" });
+      } else if (newState.limit !== prev.limit) {
+        await api(`${USER_API}/users/${userId}/card/limit`, { method: "PUT", body: JSON.stringify({ daily_limit: newState.limit }) });
+      } else if (newState.pin !== prev.pin) {
+        const body = prev.pin ? { pin: newState.pin, old_pin: prev.pin } : { pin: newState.pin };
+        await api(`${USER_API}/users/${userId}/card/pin`, { method: "POST", body: JSON.stringify(body) });
+      } else if (newState.number !== prev.number) {
+        // For card regeneration, use the server-generated number
+        const data = await api(`${USER_API}/users/${userId}/card/regenerate`, { method: "POST" });
+        const state = { ...newState, number: data.card_number, expiry: data.expiry };
+        setCardState(state);
+        lsSet(`techbleat_card_${userId}`, state);
+      }
+    } catch {
+      // API call failed — local/optimistic state stays; user will see their change
+    }
   }
 
   // ── Derived helpers ───────────────────────────────────────────────────────
@@ -152,8 +194,8 @@ export default function TechbleatGlobalBankCustomerApp() {
       setAssistantMessages(saved ?? [
         { role: "assistant", content: "Hello! I'm your banking assistant. Ask me about your balance or recent transactions." },
       ]);
-      // Load card state for this user
-      setCardState(loadCardState(selectedUserId));
+      // Load card state for this user (API-first, localStorage fallback)
+      void loadCardFromAPI(selectedUserId);
     }
   }, [selectedUserId]);
 
@@ -456,7 +498,7 @@ export default function TechbleatGlobalBankCustomerApp() {
         {canViewBanking && selectedUser && screen === "cards" && cardState && (
           <CardManagementScreen
             selectedUser={selectedUser} cardState={cardState} balance={balance}
-            onUpdateCard={(updated) => saveCardState(selectedUserId, updated)}
+            onUpdateCard={(updated) => void handleCardUpdate(selectedUserId, updated)}
             onToast={addToast}
           />
         )}

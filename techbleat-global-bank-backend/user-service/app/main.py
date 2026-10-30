@@ -1,4 +1,7 @@
+import hashlib
 import os
+import random
+import string
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException
@@ -223,3 +226,160 @@ def list_users(user: UserContext = Depends(require_user)):
             )
         ).mappings().all()
         return [dict(row) for row in rows]
+
+
+# ── Card helpers ───────────────────────────────────────────────────────────────
+
+def _generate_card_number() -> str:
+    groups = ["".join(random.choices(string.digits, k=4)) for _ in range(4)]
+    return " ".join(groups)
+
+
+def _generate_expiry() -> str:
+    from datetime import date
+    d = date.today()
+    month = str(d.month).zfill(2)
+    year = str(d.year + 4)[-2:]
+    return f"{month}/{year}"
+
+
+def _hash_pin(pin: str) -> str:
+    return hashlib.sha256(pin.encode()).hexdigest()
+
+
+def _get_or_create_card(conn, user_id: str) -> dict:
+    row = conn.execute(
+        text("SELECT user_id, card_number, expiry, frozen, pin_hash, daily_limit FROM cards WHERE user_id = :uid"),
+        {"uid": user_id},
+    ).mappings().fetchone()
+    if row:
+        return dict(row)
+    card_number = _generate_card_number()
+    expiry = _generate_expiry()
+    conn.execute(
+        text(
+            "INSERT INTO cards (user_id, card_number, expiry, frozen, pin_hash, daily_limit)"
+            " VALUES (:uid, :num, :exp, FALSE, NULL, 2000)"
+        ),
+        {"uid": user_id, "num": card_number, "exp": expiry},
+    )
+    return {"user_id": user_id, "card_number": card_number, "expiry": expiry, "frozen": False, "pin_hash": None, "daily_limit": 2000}
+
+
+def _card_response(row: dict) -> dict:
+    return {
+        "user_id": row["user_id"],
+        "card_number": row["card_number"],
+        "expiry": row["expiry"],
+        "frozen": row["frozen"],
+        "pin_set": bool(row["pin_hash"]),
+        "daily_limit": float(row["daily_limit"]),
+    }
+
+
+# ── Card management models ─────────────────────────────────────────────────────
+
+class PinRequest(BaseModel):
+    pin: str = Field(min_length=4, max_length=4, pattern=r"^\d{4}$")
+    old_pin: str | None = Field(default=None, min_length=4, max_length=4, pattern=r"^\d{4}$")
+
+
+class LimitRequest(BaseModel):
+    daily_limit: float = Field(gt=9.99, le=10_000)
+
+
+# ── Card endpoints ─────────────────────────────────────────────────────────────
+
+@app.get("/users/{user_id}/card")
+def get_card(user_id: str, user: UserContext = Depends(require_user)):
+    with engine.begin() as conn:
+        _assert_user_exists(conn, user_id)
+        row = _get_or_create_card(conn, user_id)
+    return _card_response(row)
+
+
+@app.post("/users/{user_id}/card/freeze")
+def freeze_card(user_id: str, user: UserContext = Depends(require_user)):
+    with engine.begin() as conn:
+        _assert_user_exists(conn, user_id)
+        conn.execute(text("UPDATE cards SET frozen = TRUE WHERE user_id = :uid"), {"uid": user_id})
+        row = _get_or_create_card(conn, user_id)
+    logger.info("Card frozen", extra={"user_id": user_id})
+    return _card_response(row)
+
+
+@app.post("/users/{user_id}/card/unfreeze")
+def unfreeze_card(user_id: str, user: UserContext = Depends(require_user)):
+    with engine.begin() as conn:
+        _assert_user_exists(conn, user_id)
+        conn.execute(text("UPDATE cards SET frozen = FALSE WHERE user_id = :uid"), {"uid": user_id})
+        row = _get_or_create_card(conn, user_id)
+    logger.info("Card unfrozen", extra={"user_id": user_id})
+    return _card_response(row)
+
+
+@app.post("/users/{user_id}/card/pin")
+def set_pin(user_id: str, body: PinRequest, user: UserContext = Depends(require_user)):
+    with engine.begin() as conn:
+        _assert_user_exists(conn, user_id)
+        _get_or_create_card(conn, user_id)
+        existing = conn.execute(
+            text("SELECT pin_hash FROM cards WHERE user_id = :uid"), {"uid": user_id}
+        ).scalar()
+        if existing:
+            if not body.old_pin:
+                raise HTTPException(status_code=400, detail="old_pin required to change an existing PIN")
+            if _hash_pin(body.old_pin) != existing:
+                raise HTTPException(status_code=403, detail="Incorrect current PIN")
+        conn.execute(
+            text("UPDATE cards SET pin_hash = :ph WHERE user_id = :uid"),
+            {"ph": _hash_pin(body.pin), "uid": user_id},
+        )
+        row = conn.execute(
+            text("SELECT user_id, card_number, expiry, frozen, pin_hash, daily_limit FROM cards WHERE user_id = :uid"),
+            {"uid": user_id},
+        ).mappings().fetchone()
+    logger.info("Card PIN updated", extra={"user_id": user_id})
+    return _card_response(dict(row))
+
+
+@app.post("/users/{user_id}/card/regenerate")
+def regenerate_card(user_id: str, user: UserContext = Depends(require_user)):
+    new_number = _generate_card_number()
+    new_expiry = _generate_expiry()
+    with engine.begin() as conn:
+        _assert_user_exists(conn, user_id)
+        _get_or_create_card(conn, user_id)
+        conn.execute(
+            text("UPDATE cards SET card_number = :num, expiry = :exp WHERE user_id = :uid"),
+            {"num": new_number, "exp": new_expiry, "uid": user_id},
+        )
+        row = conn.execute(
+            text("SELECT user_id, card_number, expiry, frozen, pin_hash, daily_limit FROM cards WHERE user_id = :uid"),
+            {"uid": user_id},
+        ).mappings().fetchone()
+    logger.info("Card regenerated", extra={"user_id": user_id})
+    return _card_response(dict(row))
+
+
+@app.put("/users/{user_id}/card/limit")
+def update_limit(user_id: str, body: LimitRequest, user: UserContext = Depends(require_user)):
+    with engine.begin() as conn:
+        _assert_user_exists(conn, user_id)
+        _get_or_create_card(conn, user_id)
+        conn.execute(
+            text("UPDATE cards SET daily_limit = :lim WHERE user_id = :uid"),
+            {"lim": body.daily_limit, "uid": user_id},
+        )
+        row = conn.execute(
+            text("SELECT user_id, card_number, expiry, frozen, pin_hash, daily_limit FROM cards WHERE user_id = :uid"),
+            {"uid": user_id},
+        ).mappings().fetchone()
+    logger.info("Card limit updated", extra={"user_id": user_id, "limit": body.daily_limit})
+    return _card_response(dict(row))
+
+
+def _assert_user_exists(conn, user_id: str) -> None:
+    exists = conn.execute(text("SELECT 1 FROM users WHERE id = :id"), {"id": user_id}).fetchone()
+    if not exists:
+        raise HTTPException(status_code=404, detail="User not found")

@@ -1,31 +1,26 @@
-# portproxy.ps1 — Idempotent netsh portproxy setup for Techbleat Global Bank.
-# Forwards Windows ports 80 and 443 to the WSL2 ingress HTTP port-forward (8080).
+# portproxy.ps1 -- Idempotent netsh portproxy setup for Techbleat Global Bank.
+# Forwards Windows ports 80 and 443 to the WSL2 ingress port-forward (9080).
 #
-# Both ports forward to 8080 because:
-#   - The local ingress has TLS disabled (Cloudflare terminates HTTPS at the edge)
-#   - Port 8443 may be held by other system services (nginx, IIS, etc.)
-#   - The ingress handles all routing regardless of whether the client used HTTP or HTTPS
+# Must run as Administrator.
+# Run once after each Windows reboot, or register as a startup task:
 #
-# Must run as Administrator (Task Scheduler or right-click → Run as Administrator).
-#
-# To register as a startup task (run once as Admin):
 #   Register-ScheduledTask -TaskName "TechbleatPortProxy" `
 #     -Trigger (New-ScheduledTaskTrigger -AtLogOn) `
 #     -Action (New-ScheduledTaskAction -Execute "powershell.exe" `
-#       -Argument "-NonInteractive -ExecutionPolicy Bypass -File `"C:\Users\EAGLESOLUTIONS\Documents\AI_BANKING_APP\sre2026-final-project\k8s\scripts\portproxy.ps1`"") `
+#       -Argument "-NonInteractive -ExecutionPolicy Bypass -File C:\Users\EAGLESOLUTIONS\Documents\AI_BANKING_APP\sre2026-final-project\k8s\scripts\portproxy.ps1") `
 #     -RunLevel Highest `
 #     -Force
 
 $rules = @(
-    @{ ListenPort = 80;  ConnectPort = 9080 },   # 8080 reserved by other services on this machine
-    @{ ListenPort = 443; ConnectPort = 9080 }    # 8443 reserved by other services on this machine
+    @{ ListenPort = 80;  ConnectPort = 9080 },
+    @{ ListenPort = 443; ConnectPort = 9080 }
 )
 
 foreach ($r in $rules) {
     $existing = netsh interface portproxy show v4tov4 |
         Select-String "127\.0\.0\.1\s+$($r.ListenPort)\s+127\.0\.0\.1\s+$($r.ConnectPort)"
     if ($existing) {
-        Write-Host "[portproxy] Rule $($r.ListenPort)->$($r.ConnectPort) already exists — skipping."
+        Write-Host "[portproxy] Rule $($r.ListenPort)->$($r.ConnectPort) already exists - skipping."
     } else {
         netsh interface portproxy add v4tov4 `
             listenport=$($r.ListenPort) listenaddress=127.0.0.1 `

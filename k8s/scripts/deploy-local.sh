@@ -92,6 +92,40 @@ fi
 # on fresh PVC init and httpcore rejecting API keys as illegal header values
 OPENAI_API_KEY="$(printf '%s' "${OPENAI_API_KEY:-}" | tr -d '\r')"
 ANTHROPIC_API_KEY="$(printf '%s' "${ANTHROPIC_API_KEY:-}" | tr -d '\r')"
+
+# ── Re-extract AI API keys using first-occurrence logic ──────────────────────
+# The .env file may have duplicate entries (real key on line 1, placeholder on
+# line 7). `source` uses last-occurrence-wins, picking up the placeholder.
+# Python reads the file with UTF-8-BOM awareness and returns only the first value.
+if [ -f "${ENV_FILE}" ] && command -v python3 >/dev/null 2>&1; then
+  _extracted_openai="$(python3 - "${ENV_FILE}" "OPENAI_API_KEY" 2>/dev/null <<'PYEOF'
+import sys, pathlib
+env_file, key_name = sys.argv[1], sys.argv[2]
+for line in pathlib.Path(env_file).read_text(encoding='utf-8-sig').splitlines():
+    line = line.rstrip('\r\n')
+    if line.startswith(key_name + '=') and not line.startswith('#'):
+        print(line[len(key_name)+1:].strip()); break
+PYEOF
+)"
+  _extracted_anthropic="$(python3 - "${ENV_FILE}" "ANTHROPIC_API_KEY" 2>/dev/null <<'PYEOF'
+import sys, pathlib
+env_file, key_name = sys.argv[1], sys.argv[2]
+for line in pathlib.Path(env_file).read_text(encoding='utf-8-sig').splitlines():
+    line = line.rstrip('\r\n')
+    if line.startswith(key_name + '=') and not line.startswith('#'):
+        print(line[len(key_name)+1:].strip()); break
+PYEOF
+)"
+  # Only override if the extracted value is longer than the shell-sourced one
+  # (catches the case where source already got the real value)
+  if [ "${#_extracted_openai}" -gt "${#OPENAI_API_KEY}" ]; then
+    OPENAI_API_KEY="${_extracted_openai}"
+  fi
+  if [ "${#_extracted_anthropic}" -gt "${#ANTHROPIC_API_KEY}" ]; then
+    ANTHROPIC_API_KEY="${_extracted_anthropic}"
+  fi
+  unset _extracted_openai _extracted_anthropic
+fi
 POSTGRES_PASSWORD="$(printf '%s' "${POSTGRES_PASSWORD}" | tr -d '\r')"
 KEYCLOAK_ADMIN_PASSWORD="$(printf '%s' "${KEYCLOAK_ADMIN_PASSWORD}" | tr -d '\r')"
 KC_ADMIN_CLIENT_SECRET="$(printf '%s' "${KC_ADMIN_CLIENT_SECRET}" | tr -d '\r')"
@@ -346,6 +380,42 @@ helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
   "${SET_ARGS[@]}"
 
 success "Helm deployment complete. Pods are starting in the background."
+
+# ── Persist AI API keys in ArgoCD Application as Helm parameters ─────────────
+# ArgoCD re-renders the Helm chart from values files on every sync, which resets
+# banking-app-secrets to the placeholder "changeme" values in values.yaml.
+# Setting helm.parameters on the Application object stores the real keys IN the
+# cluster (not in git), so ArgoCD uses them when rendering the chart on each sync.
+# This survives pod restarts, ArgoCD syncs, and cluster reboots.
+ARGOCD_APP="${RELEASE}"
+if kubectl get application "${ARGOCD_APP}" -n argocd >/dev/null 2>&1; then
+  _param_patch="[]"
+  _params='[]'
+  if [ -n "${OPENAI_API_KEY}" ] && [ "${OPENAI_API_KEY}" != "changeme" ]; then
+    _params=$(printf '%s' "${_params}" | python3 -c "
+import sys, json
+p = json.load(sys.stdin)
+p.append({'name':'secrets.openaiApiKey','value':'${OPENAI_API_KEY}'})
+print(json.dumps(p))" 2>/dev/null || echo '[]')
+  fi
+  if [ -n "${ANTHROPIC_API_KEY}" ] && [ "${ANTHROPIC_API_KEY}" != "changeme" ]; then
+    _params=$(printf '%s' "${_params}" | python3 -c "
+import sys, json
+p = json.load(sys.stdin)
+p.append({'name':'secrets.anthropicApiKey','value':'${ANTHROPIC_API_KEY}'})
+print(json.dumps(p))" 2>/dev/null || echo '[]')
+  fi
+  if [ "${_params}" != "[]" ] && [ -n "${_params}" ]; then
+    kubectl patch application "${ARGOCD_APP}" -n argocd \
+      --type=merge \
+      -p "{\"spec\":{\"source\":{\"helm\":{\"parameters\":${_params}}}}}" \
+      >/dev/null 2>&1 \
+      && success "ArgoCD Application '${ARGOCD_APP}' updated with AI API key parameters (keys persist across syncs)." \
+      || warn "Could not patch ArgoCD Application — AI keys may reset on next ArgoCD sync."
+  fi
+else
+  info "ArgoCD Application '${ARGOCD_APP}' not found — skipping parameter patch."
+fi
 info "Waiting for Postgres to be ready (up to 3 min)..."
 kubectl rollout status deployment/postgres -n "${NAMESPACE}" --timeout=180s 2>/dev/null \
   || warn "Postgres not ready yet — check: kubectl get pods -n ${NAMESPACE}"
