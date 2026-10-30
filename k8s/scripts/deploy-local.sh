@@ -389,30 +389,28 @@ success "Helm deployment complete. Pods are starting in the background."
 # This survives pod restarts, ArgoCD syncs, and cluster reboots.
 ARGOCD_APP="${RELEASE}"
 if kubectl get application "${ARGOCD_APP}" -n argocd >/dev/null 2>&1; then
-  _param_patch="[]"
-  _params='[]'
-  if [ -n "${OPENAI_API_KEY}" ] && [ "${OPENAI_API_KEY}" != "changeme" ]; then
-    _params=$(printf '%s' "${_params}" | python3 -c "
+  # Build the parameters JSON via a temp file to avoid shell-expansion issues
+  # with long API key values inside python3 -c "..." double-quoted strings.
+  _argocd_patch_tmp="$(mktemp /tmp/argocd-params-XXXXXX.json)"
+  python3 - "${OPENAI_API_KEY:-}" "${ANTHROPIC_API_KEY:-}" > "${_argocd_patch_tmp}" 2>/dev/null <<'PYEOF'
 import sys, json
-p = json.load(sys.stdin)
-p.append({'name':'secrets.openaiApiKey','value':'${OPENAI_API_KEY}'})
-print(json.dumps(p))" 2>/dev/null || echo '[]')
-  fi
-  if [ -n "${ANTHROPIC_API_KEY}" ] && [ "${ANTHROPIC_API_KEY}" != "changeme" ]; then
-    _params=$(printf '%s' "${_params}" | python3 -c "
-import sys, json
-p = json.load(sys.stdin)
-p.append({'name':'secrets.anthropicApiKey','value':'${ANTHROPIC_API_KEY}'})
-print(json.dumps(p))" 2>/dev/null || echo '[]')
-  fi
-  if [ "${_params}" != "[]" ] && [ -n "${_params}" ]; then
+openai_key, anthropic_key = sys.argv[1], sys.argv[2]
+params = []
+if openai_key and openai_key != "changeme":
+    params.append({"name": "secrets.openaiApiKey", "value": openai_key})
+if anthropic_key and anthropic_key != "changeme":
+    params.append({"name": "secrets.anthropicApiKey", "value": anthropic_key})
+print(json.dumps({"spec": {"source": {"helm": {"parameters": params}}}}))
+PYEOF
+  if [ -s "${_argocd_patch_tmp}" ]; then
     kubectl patch application "${ARGOCD_APP}" -n argocd \
       --type=merge \
-      -p "{\"spec\":{\"source\":{\"helm\":{\"parameters\":${_params}}}}}" \
+      --patch-file "${_argocd_patch_tmp}" \
       >/dev/null 2>&1 \
       && success "ArgoCD Application '${ARGOCD_APP}' updated with AI API key parameters (keys persist across syncs)." \
       || warn "Could not patch ArgoCD Application — AI keys may reset on next ArgoCD sync."
   fi
+  rm -f "${_argocd_patch_tmp}"
 else
   info "ArgoCD Application '${ARGOCD_APP}' not found — skipping parameter patch."
 fi
@@ -432,16 +430,18 @@ info "Granting manage-users + view-users to banking-provisioner service account.
 _KC="deploy/${RELEASE}-keycloak"
 if kubectl get deployment "${RELEASE}-keycloak" -n "${NAMESPACE}" >/dev/null 2>&1; then
   KC_PASS="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
-  kubectl exec -n "${NAMESPACE}" "${_KC}" -- \
+  # timeout 30 prevents the kcadm CLI from hanging indefinitely if Keycloak
+  # is slow to respond — role grant failure is non-fatal, roles already exist.
+  timeout 30 kubectl exec -n "${NAMESPACE}" "${_KC}" -- \
     /opt/keycloak/bin/kcadm.sh config credentials \
       --server http://localhost:8080 --realm master \
       --user admin --password "${KC_PASS}" >/dev/null 2>&1 && \
-  kubectl exec -n "${NAMESPACE}" "${_KC}" -- \
+  timeout 30 kubectl exec -n "${NAMESPACE}" "${_KC}" -- \
     /opt/keycloak/bin/kcadm.sh add-roles -r banking \
       --uusername service-account-banking-provisioner \
       --cclientid realm-management \
       --rolename manage-users >/dev/null 2>&1 && \
-  kubectl exec -n "${NAMESPACE}" "${_KC}" -- \
+  timeout 30 kubectl exec -n "${NAMESPACE}" "${_KC}" -- \
     /opt/keycloak/bin/kcadm.sh add-roles -r banking \
       --uusername service-account-banking-provisioner \
       --cclientid realm-management \
