@@ -16,7 +16,7 @@ metadata:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: HookSucceeded
 spec:
-  backoffLimit: 3
+  backoffLimit: 6
   activeDeadlineSeconds: 1800
   template:
     metadata:
@@ -62,18 +62,20 @@ spec:
 
               # ── Wait for Keycloak ──────────────────────────────────────────
               echo "[provisioner] Waiting for Keycloak to be ready..."
-              until curl -sf "${KC_URL}/realms/master" -o /dev/null; do
+              until curl -sf --max-time 5 "${KC_URL}/realms/master" -o /dev/null; do
                 echo "[provisioner] Keycloak not ready yet, retrying in 10s..."
                 sleep 10
               done
-              echo "[provisioner] Keycloak is ready."
+              echo "[provisioner] Keycloak /realms/master is up. Allowing admin API 30s to initialise..."
+              sleep 30
 
               # ── Get admin token (with retry) ───────────────────────────────
-              # Keycloak may report /realms/master ready before the admin user
-              # is fully initialised.  Retry up to 12 times (60 s) before failing.
+              # /realms/master ready does NOT guarantee the admin user is initialised.
+              # Retry for up to 5 minutes (60 x 5 s) to allow cold-start clusters.
               TOKEN=""
-              for i in $(seq 1 12); do
-                TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+              for i in $(seq 1 60); do
+                TOKEN=$(curl -sf --max-time 10 -X POST \
+                  "${KC_URL}/realms/master/protocol/openid-connect/token" \
                   --data-urlencode "grant_type=password" \
                   --data-urlencode "client_id=admin-cli" \
                   --data-urlencode "username=${KC_ADMIN_USER}" \
@@ -82,7 +84,7 @@ spec:
                 if [ -n "$TOKEN" ]; then
                   break
                 fi
-                echo "[provisioner] Admin token attempt $i/12 failed, retrying in 5s..."
+                echo "[provisioner] Admin token attempt $i/60 failed, retrying in 5s..."
                 sleep 5
               done
 
@@ -100,7 +102,7 @@ spec:
               if [ "$REALM_STATUS" != "200" ]; then
                 echo "[provisioner] WARNING: banking realm not found (status $REALM_STATUS). Keycloak may still be importing."
                 sleep 15
-                TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+                TOKEN=$(curl -sf --max-time 10 -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
                   --data-urlencode "grant_type=password" \
                   --data-urlencode "client_id=admin-cli" \
                   --data-urlencode "username=${KC_ADMIN_USER}" \
