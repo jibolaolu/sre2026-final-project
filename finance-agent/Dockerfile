@@ -6,7 +6,11 @@ WORKDIR /app
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --upgrade "pip==26.2.2" && pip install --no-cache-dir -r requirements.txt
+# Remove pip after installation — pip is a build tool only; removing it eliminates
+# pip CVEs from Trivy scans permanently without affecting runtime behaviour.
+RUN pip install --upgrade "pip==26.2.2" \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y pip
 
 COPY agent.py auth.py guardrails.py main.py memory.py telemetry.py tools.py ./
 
