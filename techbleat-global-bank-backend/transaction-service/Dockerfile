@@ -16,7 +16,7 @@ RUN useradd -m -u 1001 app && chown app:app /app
 RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends wget \
     && wget -q -O /app/opentelemetry-javaagent.jar \
-       https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.9.0/opentelemetry-javaagent.jar \
+       https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.26.1/opentelemetry-javaagent.jar \
     && apt-get remove -y wget && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/target/transaction-service-1.0.0.jar app.jar
