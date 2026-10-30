@@ -90,6 +90,9 @@ spec:
               app.kubernetes.io/component: user-service
         - podSelector:
             matchLabels:
+              app.kubernetes.io/component: activity-service
+        - podSelector:
+            matchLabels:
               app.kubernetes.io/component: transaction-service
         - podSelector:
             matchLabels:
@@ -284,6 +287,51 @@ spec:
         - port: 9092
 
 ---
+# ── Egress: frontend nginx → backend services (proxy_pass targets) ────────────
+# The frontend nginx proxies /user-api/, /transaction-api/, /activity-api/,
+# and /finance-agent-api/ to the respective backend pods. Without this egress
+# rule, default-deny-all blocks those proxy_pass connections and Istio returns
+# "upstream connect error … connection timeout" to the browser.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: user-service
+      ports:
+        - port: 8000
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: transaction-service
+      ports:
+        - port: 8080
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: activity-service
+      ports:
+        - port: 8001
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: finance-agent
+      ports:
+        - port: 9001
+
+---
 # ── Egress: backend services to postgres / redis / kafka / keycloak ──────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -445,6 +493,9 @@ spec:
 
 ---
 # ── Egress: cloudflared → Cloudflare edge (QUIC UDP 7844 + HTTPS TCP 443) ──────
+# Also allows cloudflared → ingress-nginx:80 for forwarding tunnel traffic to the
+# backend. Without this, Cloudflare reaches the tunnel (so it shows "Working") but
+# cloudflared cannot forward the HTTP request to ingress-nginx → 502 Bad Gateway.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -464,6 +515,13 @@ spec:
           protocol: TCP
         - port: 7844
           protocol: UDP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 80
+          protocol: TCP
 
 ---
 # ── Egress: postgres-backup CronJob → postgres ────────────────────────────────

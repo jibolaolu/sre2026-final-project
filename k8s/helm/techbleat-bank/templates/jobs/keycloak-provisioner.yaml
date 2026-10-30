@@ -209,16 +209,27 @@ spec:
                   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
                   -d "{\"type\":\"password\",\"value\":\"${DEMO_USER_PASSWORD}\",\"temporary\":false}" -o /dev/null
 
-                # Assign banking-customer role
-                ROLE_BODY=$(curl -s "${KC_API}/${KC_REALM}/roles/banking-customer" \
-                  -H "Authorization: Bearer $TOKEN")
-                ROLE_ID=$(echo "$ROLE_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-                if [ -n "$ROLE_ID" ]; then
-                  curl -s -X POST "${KC_API}/${KC_REALM}/users/${DEMO_ID}/role-mappings/realm" \
-                    -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-                    -d "[{\"id\":\"${ROLE_ID}\",\"name\":\"banking-customer\"}]" -o /dev/null
-                  echo "[provisioner] Assigned banking-customer to demo user."
-                fi
+                # Assign banking-customer, banking-transact, banking-ai-agent roles
+                ROLES_JSON="["
+                FIRST=true
+                for RNAME in "banking-customer" "banking-transact" "banking-ai-agent"; do
+                  R_BODY=$(curl -s "${KC_API}/${KC_REALM}/roles/${RNAME}" \
+                    -H "Authorization: Bearer $TOKEN")
+                  R_ID=$(echo "$R_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                  if [ -n "$R_ID" ]; then
+                    if [ "$FIRST" = "true" ]; then
+                      FIRST=false
+                    else
+                      ROLES_JSON="${ROLES_JSON},"
+                    fi
+                    ROLES_JSON="${ROLES_JSON}{\"id\":\"${R_ID}\",\"name\":\"${RNAME}\"}"
+                  fi
+                done
+                ROLES_JSON="${ROLES_JSON}]"
+                curl -s -X POST "${KC_API}/${KC_REALM}/users/${DEMO_ID}/role-mappings/realm" \
+                  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                  -d "${ROLES_JSON}" -o /dev/null
+                echo "[provisioner] Assigned banking-customer, banking-transact, banking-ai-agent to demo user."
               fi
 
               echo "[provisioner] Provisioning complete."
