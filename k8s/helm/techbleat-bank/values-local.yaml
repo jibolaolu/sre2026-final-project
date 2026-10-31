@@ -81,14 +81,14 @@ userService:
   autoscaling:
     enabled: false
   image:
-    tag: "723869d"
+    tag: "latest"
 
 transactionService:
   replicaCount: 1
   autoscaling:
     enabled: false
   image:
-    tag: "723869d"
+    tag: "latest"
   env:
     springDatasourceUrl: "jdbc:postgresql://postgres:5432/bankingdb?sslmode=disable"
     keycloakJwkSetUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
@@ -99,7 +99,7 @@ activityService:
   autoscaling:
     enabled: false
   image:
-    tag: "723869d"
+    tag: "latest"
   env:
     frontendOrigin: "https://banking-app.eaglesoncloude.com"
 
@@ -108,7 +108,7 @@ financeAgent:
   autoscaling:
     enabled: false
   image:
-    tag: "723869d"
+    tag: "latest"
   proxy:
     # Leave empty to let pods connect to OpenAI/Anthropic directly via the
     # allow-finance-agent-external-api NetworkPolicy (port 443 egress, no to: selector).
@@ -121,7 +121,7 @@ frontend:
   autoscaling:
     enabled: false
   image:
-    tag: "723869d"
+    tag: "latest"
 
 # ── Istio ─────────────────────────────────────────────────────────────────────
 # minikube installs Istio by default; set false if you skipped istio addon.

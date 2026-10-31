@@ -217,7 +217,8 @@ jobs:
             --for=condition=ready --timeout=120s 2>/dev/null || true
           PW=$(kubectl get secret banking-app-secrets \
             -n ${{ env.NAMESPACE }} \
-            -o jsonpath='{.data.postgres-password}' | base64 -d)
+            -o json \
+            | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['data']['postgres-password']).decode(),end='')")
           echo "::add-mask::${PW}"
           printf "ALTER USER bankuser WITH PASSWORD '%s';\n" "$PW" \
             | kubectl exec -i "$PG_POD" -n ${{ env.NAMESPACE }} -c postgres -- \
