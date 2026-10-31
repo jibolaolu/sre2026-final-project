@@ -75,27 +75,32 @@ DOCKERHUB_USERNAME="$(_c "${DOCKERHUB_USERNAME:-}")"
 # built by GitHub Actions — using a tag that was never pushed causes ImagePullBackOff
 # and the keycloak-provisioner hook hangs waiting for Keycloak that can never start.
 if [ "${SKIP_BUILD}" = "1" ]; then
-  # 1st choice: tag from the running Helm release (most reliable)
-  _DEPLOYED_TAG=$(helm get values "${RELEASE}" -n "${NAMESPACE}" -o json 2>/dev/null \
-    | python3 -c "import sys,json; v=json.load(sys.stdin); print(v.get('userService',{}).get('image',{}).get('tag',''))" \
-    2>/dev/null || echo "")
-  # 2nd choice: tag already loaded in minikube's image cache
-  _MINIKUBE_TAG=$(minikube image ls --profile "${CLUSTER_NAME}" 2>/dev/null \
-    | grep -E "${GITHUB_USERNAME:-${DOCKERHUB_USERNAME:-}}/user-service:" \
-    | head -1 | sed 's/.*://' | tr -d ' ' || echo "")
-  if [ -n "${_DEPLOYED_TAG}" ]; then
-    IMAGE_TAG="${_DEPLOYED_TAG}"
-    info "Using previously deployed image tag: ${IMAGE_TAG}"
-  elif [ -n "${_MINIKUBE_TAG}" ]; then
-    IMAGE_TAG="${_MINIKUBE_TAG}"
-    info "Using image tag found in minikube cache: ${IMAGE_TAG}"
-  elif [ -n "${IMAGE_TAG:-}" ]; then
-    IMAGE_TAG="$(_c "${IMAGE_TAG}")"
-    info "Using IMAGE_TAG from environment: ${IMAGE_TAG}"
+  # 0th choice: explicit IMAGE_TAG in .env wins — gives the user direct control.
+  # Set IMAGE_TAG=latest in .env to always pull and use the newest GHCR build.
+  _ENV_TAG="$(_c "${IMAGE_TAG:-}")"
+  if [ -n "${_ENV_TAG}" ]; then
+    IMAGE_TAG="${_ENV_TAG}"
+    info "Using IMAGE_TAG from .env: ${IMAGE_TAG}"
   else
-    die "Cannot determine image tag for --skip-build. Either:
+    # 1st choice: tag from the running Helm release (most reliable)
+    _DEPLOYED_TAG=$(helm get values "${RELEASE}" -n "${NAMESPACE}" -o json 2>/dev/null \
+      | python3 -c "import sys,json; v=json.load(sys.stdin); print(v.get('userService',{}).get('image',{}).get('tag',''))" \
+      2>/dev/null || echo "")
+    # 2nd choice: tag already loaded in minikube's image cache
+    _MINIKUBE_TAG=$(minikube image ls --profile "${CLUSTER_NAME}" 2>/dev/null \
+      | grep -E "${GITHUB_USERNAME:-${DOCKERHUB_USERNAME:-}}/user-service:" \
+      | head -1 | sed 's/.*://' | tr -d ' ' || echo "")
+    if [ -n "${_DEPLOYED_TAG}" ]; then
+      IMAGE_TAG="${_DEPLOYED_TAG}"
+      info "Using previously deployed image tag: ${IMAGE_TAG}"
+    elif [ -n "${_MINIKUBE_TAG}" ]; then
+      IMAGE_TAG="${_MINIKUBE_TAG}"
+      info "Using image tag found in minikube cache: ${IMAGE_TAG}"
+    else
+      die "Cannot determine image tag for --skip-build. Either:
   1. Set IMAGE_TAG=<tag> in .env (use the tag from your last successful build)
   2. Run without --skip-build to rebuild images"
+    fi
   fi
 else
   IMAGE_TAG="$(_c "${IMAGE_TAG:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo latest)}")"
@@ -321,17 +326,29 @@ phase_done "third-party-images"
 # ─────────────────────────────────────────────────────────────────────────────
 printf "\n${BOLD}━━ Phase 5: Service images ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
 if [ "${SKIP_BUILD}" = "1" ]; then
-  info "--skip-build set — loading existing images into minikube without rebuilding."
+  info "--skip-build set — pulling latest images from GHCR and loading into minikube."
+  # Always attempt docker pull to ensure the local cache matches GHCR.
+  # Pull requires GITHUB_TOKEN; if credentials are absent the pull is skipped
+  # gracefully and the existing minikube cache entry is used.
+  if [ -n "${GITHUB_TOKEN:-}" ] || [ -n "${GITHUB_PAT:-}" ]; then
+    _tok="$(_c "${GITHUB_TOKEN:-${GITHUB_PAT:-}}")"
+    echo "${_tok}" | docker login ghcr.io -u "${GITHUB_USERNAME}" --password-stdin >/dev/null 2>&1 \
+      && info "Logged in to ghcr.io for image pull." \
+      || warn "ghcr.io login failed — using cached images."
+  fi
   for svc in user-service transaction-service activity-service finance-agent frontend; do
     img="${IMAGE_REGISTRY}${svc}:${IMAGE_TAG}"
-    if minikube image ls --profile "${CLUSTER_NAME}" 2>/dev/null | grep -qF "${img}"; then
-      skip "${img}"
+    # Always try to pull fresh from GHCR; on failure fall back to cached image.
+    if docker pull "${img}" >/dev/null 2>&1; then
+      info "Pulled fresh ${img} from GHCR."
+      docker save "${img}" \
+        | docker exec -i "${CLUSTER_NAME}" ctr --namespace k8s.io images import - >/dev/null 2>&1 \
+        || minikube image load "${img}" --profile "${CLUSTER_NAME}" >/dev/null 2>&1 \
+        || warn "Could not load ${img} into minikube after pull."
+    elif minikube image ls --profile "${CLUSTER_NAME}" 2>/dev/null | grep -qF "${img}"; then
+      skip "${img} (using cached version — pull failed)"
     else
-      info "Loading ${img} into minikube..."
-      docker pull "${img}" 2>/dev/null \
-        && docker save "${img}" \
-             | docker exec -i "${CLUSTER_NAME}" ctr --namespace k8s.io images import - 2>/dev/null \
-        || warn "Could not load ${img} — pod may ImagePullBackOff. Run without --skip-build to rebuild."
+      warn "Could not load ${img} — pod may ImagePullBackOff. Run without --skip-build to rebuild."
     fi
   done
   phase_skipped "image-build"
@@ -409,7 +426,14 @@ case "${HELM_STATUS}" in
     KC_EXISTS=$(printf '%s\n' "${_DP}" | grep -c "techbleat-bank-keycloak" || true)
     FE_EXISTS=$(printf '%s\n' "${_DP}" | grep -c "techbleat-bank-frontend"  || true)
     RESOURCES_OK=$([ "${KC_EXISTS}" -gt 0 ] && [ "${FE_EXISTS}" -gt 0 ] && echo "yes" || echo "no")
-    if [ "${CURRENT_TAG}" = "${IMAGE_TAG}" ] && [ "${SKIP_BUILD}" = "1" ] && [ "${RESOURCES_OK}" = "yes" ]; then
+    # When IMAGE_TAG=latest the Helm values tag is always "latest" after the first deploy.
+    # Check the ACTUAL running pod image to detect drift (failed upgrades can leave
+    # the cluster on a SHA while Helm values say "latest").
+    _RUNNING_TAG=$(kubectl get deployment "${RELEASE}-user-service" -n "${NAMESPACE}" \
+      -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null \
+      | sed 's/.*://' || echo "")
+    _EFFECTIVE_TAG="${_RUNNING_TAG:-${CURRENT_TAG}}"
+    if [ "${_EFFECTIVE_TAG}" = "${IMAGE_TAG}" ] && [ "${SKIP_BUILD}" = "1" ] && [ "${RESOURCES_OK}" = "yes" ]; then
       skip "Helm release (tag ${IMAGE_TAG} already deployed, resources present)"
       phase_skipped "helm-deploy"
       # Rollout-restart any pods that are not ready
@@ -474,9 +498,20 @@ if [ "${SKIP_BUILD}" = "1" ]; then
       info "Keycloak is running in start-dev (H2) but productionMode: true is configured — upgrade needed."
       # SKIP_HELM stays 0 so the upgrade runs below and applies productionMode.
     else
-      skip "Helm deploy (pods already running — skipping re-deploy in --skip-build mode)"
-      SKIP_HELM=1
-      phase_skipped "helm-deploy"
+      # For 'latest' tag, also verify the running pods actually have the latest image.
+      # Failed Helm upgrades can leave cluster objects on a stale SHA while Helm
+      # values say "latest" — we must upgrade to correct the drift.
+      _ACTUAL_IMAGE=$(kubectl get deployment "${RELEASE}-user-service" -n "${NAMESPACE}" \
+        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+      _ACTUAL_TAG=$(printf '%s' "${_ACTUAL_IMAGE}" | sed 's/.*://')
+      if [ "${IMAGE_TAG}" = "latest" ] && [ "${_ACTUAL_TAG}" != "latest" ]; then
+        info "Running pods have image tag '${_ACTUAL_TAG}' but IMAGE_TAG=latest — upgrading to apply latest."
+        # SKIP_HELM stays 0 so the upgrade runs below.
+      else
+        skip "Helm deploy (pods already running — skipping re-deploy in --skip-build mode)"
+        SKIP_HELM=1
+        phase_skipped "helm-deploy"
+      fi
       # Restart any unhealthy pods without a full Helm upgrade
       UNHEALTHY=$(printf '%s\n' "${_PODS}" \
         | awk '{split($2,r,"/"); if (r[1]!=r[2] || r[1]=="0") print $1}' || true)
@@ -569,9 +604,12 @@ if [ "${SKIP_HELM}" = "0" ] && ([ "${FORCE_DEPLOY}" = "1" ] || [ "${HELM_STATUS}
   fi
 
   info "Running helm upgrade --install..."
+  # Use Always pull policy for 'latest' tag so pods never serve a stale cached image.
+  _PULL_POLICY="IfNotPresent"
+  [ "${IMAGE_TAG}" = "latest" ] && _PULL_POLICY="Always"
   SET_ARGS=(
     "--set" "global.imageRegistry=${IMAGE_REGISTRY}"
-    "--set" "global.imagePullPolicy=IfNotPresent"
+    "--set" "global.imagePullPolicy=${_PULL_POLICY}"
     "--set" "userService.image.tag=${IMAGE_TAG}"
     "--set" "transactionService.image.tag=${IMAGE_TAG}"
     "--set" "activityService.image.tag=${IMAGE_TAG}"

@@ -18,7 +18,7 @@
 
 global:
   imageRegistry: "ghcr.io/jibolaolu/"   # set here so ArgoCD syncs with valid images
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always   # Always pull so pods automatically pick up the latest GHCR build
   storageClass: standard     # kind default storage class
 
 # ── Public URLs (used by Keycloak KC_HOSTNAME and frontend build args) ──────
