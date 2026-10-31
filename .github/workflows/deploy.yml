@@ -194,6 +194,40 @@ jobs:
             --set secrets.datadogApiKey="${{ secrets.DATADOG_API_KEY }}" \
             --timeout 15m
 
+      # ── Post-deploy: sync Postgres bankuser password ───────────────────────
+      # The Helm lookup guard prevents 'helm upgrade' from overwriting banking-app-secrets,
+      # so the K8s secret always holds the password that startup.sh (Phase 3) last set.
+      # Postgres's own bankuser password (stored in pg_authid) can drift from the secret
+      # if the cluster was re-initialized with different values.  Re-syncing here ensures
+      # new pods (Keycloak, user-service, transaction-service) always authenticate cleanly.
+      #
+      # Security: the password is read from the K8s secret and piped to psql via stdin
+      # inside the kubectl exec session — it never appears in runner logs or process list.
+      # '::add-mask::' additionally instructs GitHub Actions to redact any accidental leak.
+      - name: Sync Postgres bankuser password (local-minikube)
+        if: ${{ inputs.environment == 'local-minikube' || inputs.environment == '' }}
+        run: |
+          PG_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} --no-headers 2>/dev/null \
+            | awk '/techbleat-bank-postgres/{print $1; exit}')
+          if [ -z "$PG_POD" ]; then
+            echo "Postgres pod not found — skipping password sync."
+            exit 0
+          fi
+          kubectl wait pod "$PG_POD" -n ${{ env.NAMESPACE }} \
+            --for=condition=ready --timeout=120s 2>/dev/null || true
+          PW=$(kubectl get secret banking-app-secrets \
+            -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.data.postgres-password}' | base64 -d)
+          echo "::add-mask::${PW}"
+          printf "ALTER USER bankuser WITH PASSWORD '%s';\n" "$PW" \
+            | kubectl exec -i "$PG_POD" -n ${{ env.NAMESPACE }} -c postgres -- \
+                psql -U bankuser -d postgres > /dev/null
+          echo "Postgres bankuser password synced."
+          for SVC in user-service transaction-service; do
+            kubectl rollout restart deployment/techbleat-bank-${SVC} \
+              -n ${{ env.NAMESPACE }} 2>/dev/null || true
+          done
+
       # Wait for Keycloak to be fully ready before the provisioner hook fires.
       # Helm --wait was removed to avoid timing out when other slow services
       # (Kafka, Postgres) delay the overall rollout.  The provisioner has its
