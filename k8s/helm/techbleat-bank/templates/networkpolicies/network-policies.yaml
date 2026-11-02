@@ -230,6 +230,9 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: keycloak
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgres-sync
       ports:
         - port: 5432
 
@@ -350,6 +353,7 @@ spec:
           - transaction-service
           - activity-service
           - finance-agent
+          - postgres-sync
   policyTypes:
     - Egress
   egress:
