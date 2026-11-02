@@ -1,0 +1,101 @@
+# Helm post-install/post-upgrade hook that ensures the Postgres bankuser password
+# always matches banking-app-secrets.postgres-password.
+#
+# Why this exists:
+#   The K8s secret can get out of sync with the actual Postgres pg_authid table when:
+#   - The secret is recreated by Helm (fresh cluster, lookup guard fails with ArgoCD)
+#   - startup.sh patches the secret AFTER the Postgres volume was first initialized
+#   - A manual helm upgrade runs without the startup.sh or deploy.yml sync steps
+#
+# How it works (no RBAC needed):
+#   Uses the postgres image directly with PGPASSWORD env var.
+#   Tries connecting with the desired password first (no-op if already correct).
+#   Falls back through known historical passwords to find a working one, then
+#   runs ALTER USER to set it to the desired value from the K8s secret.
+#   Idempotent — safe to run on every upgrade.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-postgres-sync
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-sync
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres-sync
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: postgres-sync
+          image: postgres:15
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DESIRED_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banking-app-secrets
+                  key: postgres-password
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: bankingdb
+            - name: PGUSER
+              value: bankuser
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              echo "[postgres-sync] Waiting for Postgres to be ready..."
+              until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -q; do
+                echo "[postgres-sync] Postgres not ready yet, retrying in 5s..."
+                sleep 5
+              done
+              echo "[postgres-sync] Postgres is ready."
+
+              # Try connecting with the desired password first (already correct — exit 0 quickly)
+              if PGPASSWORD="$DESIRED_PASSWORD" psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" \
+                  -c "SELECT 1" -q > /dev/null 2>&1; then
+                echo "[postgres-sync] Postgres password already matches secret — no change needed."
+                exit 0
+              fi
+
+              echo "[postgres-sync] Current password differs from secret; attempting sync..."
+
+              # Try known fallback passwords (covers: Helm default, previous startup.sh values)
+              SYNCED=false
+              for FALLBACK in "changeme" "bankingdev2026" "postgres" ""; do
+                if PGPASSWORD="$FALLBACK" psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" \
+                    -c "ALTER USER ${PGUSER} WITH PASSWORD '${DESIRED_PASSWORD}';" \
+                    -q > /dev/null 2>&1; then
+                  echo "[postgres-sync] Password synced (was: '${FALLBACK}')."
+                  SYNCED=true
+                  break
+                fi
+              done
+
+              if [ "$SYNCED" = "false" ]; then
+                echo "[postgres-sync] ERROR: Could not authenticate with any known password."
+                echo "[postgres-sync] Manual fix: kubectl exec into postgres pod and run:"
+                echo "  psql -U bankuser -c \"ALTER USER bankuser WITH PASSWORD '<value-from-secret>'\""
+                exit 1
+              fi
+
+              echo "[postgres-sync] Done."

@@ -493,9 +493,9 @@ spec:
 
 ---
 # ── Egress: cloudflared → Cloudflare edge (QUIC UDP 7844 + HTTPS TCP 443) ──────
-# Also allows cloudflared → ingress-nginx:80 for forwarding tunnel traffic to the
-# backend. Without this, Cloudflare reaches the tunnel (so it shows "Working") but
-# cloudflared cannot forward the HTTP request to ingress-nginx → 502 Bad Gateway.
+# Also allows cloudflared → ingress-nginx:80 and argocd-server:80/8080.
+# Port 8080 is needed because kindnet evaluates NetworkPolicy post-DNAT:
+# service port 80/443 → pod port 8080, and the policy must allow the pod port.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -521,6 +521,15 @@ spec:
               kubernetes.io/metadata.name: ingress-nginx
       ports:
         - port: 80
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 8080
           protocol: TCP
 
 ---
