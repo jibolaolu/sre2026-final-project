@@ -36,7 +36,7 @@ spec:
         {{- include "techbleat-bank.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: postgres-sync
       annotations:
-        sidecar.istio.io/inject: "false"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       restartPolicy: OnFailure
       containers:
@@ -95,7 +95,13 @@ spec:
                 echo "[postgres-sync] ERROR: Could not authenticate with any known password."
                 echo "[postgres-sync] Manual fix: kubectl exec into postgres pod and run:"
                 echo "  psql -U bankuser -c \"ALTER USER bankuser WITH PASSWORD '<value-from-secret>'\""
+                curl -sf -X POST http://localhost:15020/quitquitquit 2>/dev/null || true
                 exit 1
               fi
 
               echo "[postgres-sync] Done."
+
+              # Signal the Istio sidecar to exit so the Job pod terminates cleanly.
+              # Without this, the sidecar keeps running after the main container exits
+              # and Helm waits forever for the hook pod to finish.
+              curl -sf -X POST http://localhost:15020/quitquitquit 2>/dev/null || true
