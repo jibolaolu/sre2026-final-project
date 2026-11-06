@@ -227,6 +227,30 @@ fi
 # Existing pods are restarted later in Phase 9 after the app is deployed.
 kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite 2>/dev/null || true
 
+# Wait for istiod to be fully ready before Helm so that hook pod Envoy proxies
+# can get xDS config and mTLS certificates without triggering long
+# holdApplicationUntilProxyStarts delays (which caused postgres-sync timeouts).
+if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
+  info "Waiting for istiod to be fully ready (max 120s)..."
+  kubectl rollout status deployment/istiod -n istio-system --timeout=120s 2>/dev/null \
+    && info "istiod ready." \
+    || warn "istiod not fully ready yet — hook pods may experience sidecar warm-up delay."
+fi
+
+# ── Kiali addon — Istio observability console ─────────────────────────────────
+# Kiali needs metrics-server for workload resource usage graphs.
+# minikube addons enable is idempotent — safe to call on every startup.
+if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
+  if ! minikube addons list -p "${CLUSTER_NAME}" 2>/dev/null | grep -q "kiali.*enabled"; then
+    info "Enabling Kiali and metrics-server minikube addons (Istio observability console)..."
+    minikube addons enable metrics-server -p "${CLUSTER_NAME}" 2>/dev/null || true
+    minikube addons enable kiali          -p "${CLUSTER_NAME}" 2>/dev/null || true
+    success "Kiali addon enabled — accessible at https://kiali.eaglesoncloude.com (once Helm deploys the ingress)."
+  else
+    skip "Kiali addon (already enabled)"
+  fi
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 3 — Kubernetes namespace + secrets
 # ─────────────────────────────────────────────────────────────────────────────
