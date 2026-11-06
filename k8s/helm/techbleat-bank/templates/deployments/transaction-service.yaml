@@ -19,6 +19,9 @@ spec:
         app.kubernetes.io/component: transaction-service
       annotations:
         ad.datadoghq.com/transaction-service.logs: '[{"source":"java","service":"transaction-service"}]'
+        {{- if .Values.istio.enabled }}
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        {{- end }}
     spec:
       serviceAccountName: transaction-service
       securityContext:

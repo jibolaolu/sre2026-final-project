@@ -19,6 +19,9 @@ spec:
         app.kubernetes.io/component: activity-service
       annotations:
         ad.datadoghq.com/activity-service.logs: '[{"source":"python","service":"activity-service"}]'
+        {{- if .Values.istio.enabled }}
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        {{- end }}
     spec:
       serviceAccountName: activity-service
       securityContext:

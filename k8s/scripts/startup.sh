@@ -256,6 +256,12 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 printf "\n${BOLD}━━ Phase 3: Namespace + secrets ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  [$(TS)]${NC}\n"
 kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply --validate=false -f -
+# Re-apply the istio-injection label now that the namespace definitely exists.
+# Phase 2.9 attempts this earlier but silently fails on a fresh cluster because the
+# banking namespace does not exist until this point.  Without this label, pods
+# deployed by Helm in Phase 6 would start without Envoy sidecars, causing STRICT
+# mTLS connections to postgres/redis/kafka to be rejected at the proxy layer.
+kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite 2>/dev/null || true
 
 # Secrets are always synced from .env (dry-run apply is idempotent)
 kubectl create secret generic banking-app-secrets \

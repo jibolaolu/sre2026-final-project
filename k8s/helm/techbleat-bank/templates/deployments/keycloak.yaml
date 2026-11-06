@@ -20,6 +20,9 @@ spec:
       annotations:
         checksum/realm: {{ include (print $.Template.BasePath "/configmaps/keycloak-realm.yaml") . | sha256sum }}
         checksum/secrets: {{ include (print $.Template.BasePath "/secrets/app-secrets.yaml") . | sha256sum }}
+        {{- if .Values.istio.enabled }}
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        {{- end }}
     spec:
       serviceAccountName: keycloak
       securityContext:

@@ -19,6 +19,9 @@ spec:
         app.kubernetes.io/component: finance-agent
       annotations:
         ad.datadoghq.com/finance-agent.logs: '[{"source":"python","service":"finance-agent"}]'
+        {{- if .Values.istio.enabled }}
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+        {{- end }}
     spec:
       serviceAccountName: finance-agent
       securityContext:
