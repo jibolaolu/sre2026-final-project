@@ -78,6 +78,26 @@ istio:
   # JWKS URI Istio uses to fetch Keycloak's public signing keys (internal service URL is fine)
   jwksUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
 
+  # ── Kiali — Istio observability console ──────────────────────────────────────
+  kiali:
+    enabled: false
+    # minikubeAddon: true  — Kiali was installed via `minikube addons enable kiali`.
+    #   The KialiCR is skipped; only the Ingress is deployed.
+    # minikubeAddon: false — Kiali Operator manages Kiali (EKS / production).
+    #   Run k8s/scripts/install-kiali-operator.sh once before helm upgrade.
+    minikubeAddon: false
+    host: "kiali.eaglesoncloude.com"
+    # Auth strategy: "anonymous" (open) or "openid" (Keycloak SSO, production)
+    authStrategy: "anonymous"
+    # For openid: the Keycloak client ID created for Kiali
+    oidcClientId: "kiali"
+    grafana:
+      enabled: false
+      url: "http://grafana.banking.svc.cluster.local:3000"
+    tracing:
+      enabled: false
+      url: "http://jaeger-query.istio-system.svc.cluster.local:16685"
+
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
   enabled: true

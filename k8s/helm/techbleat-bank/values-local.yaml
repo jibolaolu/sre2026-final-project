@@ -131,6 +131,15 @@ istio:
   mtls: PERMISSIVE
   jwtIssuer: "https://auth.eaglesoncloude.com/realms/banking"
   jwksUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
+  kiali:
+    enabled: true
+    minikubeAddon: true        # Kiali installed via: minikube addons enable kiali
+    host: "kiali.eaglesoncloude.com"
+    authStrategy: "anonymous"  # local cluster — no Keycloak gate needed
+    grafana:
+      enabled: false           # set true once Grafana is deployed
+    tracing:
+      enabled: false           # set true once Jaeger is deployed
 
 # ── Observability ─────────────────────────────────────────────────────────────
 observability:

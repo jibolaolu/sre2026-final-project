@@ -1,0 +1,144 @@
+{{- if and .Values.istio.enabled .Values.istio.kiali.enabled }}
+# ── Kiali — Istio observability console ───────────────────────────────────────
+#
+# Deployment strategy differs by environment:
+#
+#  minikube  — Kiali is installed via the minikube addon (addon ships its own
+#               Deployment/Service in istio-system).  This file deploys only
+#               the nginx Ingress so the UI is reachable at the configured host.
+#
+#  EKS       — The Kiali Operator is installed cluster-wide via the bootstrap
+#               script (k8s/scripts/install-kiali-operator.sh).  This file
+#               deploys the KialiCR custom resource that tells the Operator what
+#               to create, plus the Ingress.
+#
+# Auth modes:
+#   anonymous — open (fine for local / internal-only clusters)
+#   openid    — login via Keycloak (set istio.kiali.authStrategy: openid for EKS)
+#
+# Access URLs:
+#   minikube  : https://kiali.eaglesoncloude.com  (via Cloudflare → nginx ingress)
+#               OR  kubectl -n istio-system port-forward svc/kiali 20001:20001
+#               then http://localhost:20001/kiali
+#   EKS       : https://kiali.eaglesoncloude.com  (Cloudflare → ALB → nginx → Kiali)
+
+{{- if not .Values.istio.kiali.minikubeAddon }}
+# ── KialiCR — only deployed when using the Kiali Operator (EKS) ──────────────
+# The Kiali Operator watches for this CR in any namespace and creates all
+# the Kiali resources (Deployment, Service, RBAC, ConfigMap) in istio-system.
+---
+apiVersion: kiali.io/v1alpha1
+kind: Kiali
+metadata:
+  name: kiali
+  namespace: istio-system
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  istio_namespace: istio-system
+
+  # ── Authentication ──────────────────────────────────────────────────────────
+  auth:
+    strategy: {{ .Values.istio.kiali.authStrategy | default "anonymous" | quote }}
+    {{- if eq (.Values.istio.kiali.authStrategy | default "anonymous") "openid" }}
+    openid:
+      client_id: {{ .Values.istio.kiali.oidcClientId | default "kiali" | quote }}
+      issuer_uri: {{ printf "%s/realms/banking" .Values.publicKeycloakUrl | quote }}
+      username_claim: preferred_username
+      # Store client secret in a K8s secret named 'kiali' in istio-system:
+      #   kubectl -n istio-system create secret generic kiali \
+      #     --from-literal=oidc-secret=<keycloak-kiali-client-secret>
+    {{- end }}
+
+  # ── External service integrations ───────────────────────────────────────────
+  external_services:
+    prometheus:
+      # Prometheus deployed by this chart lives in the banking namespace.
+      url: "http://prometheus-server.{{ .Values.global.namespace }}.svc.cluster.local"
+    grafana:
+      enabled: {{ .Values.istio.kiali.grafana.enabled | default false }}
+      {{- if .Values.istio.kiali.grafana.enabled }}
+      url: {{ .Values.istio.kiali.grafana.url | default "http://grafana.banking.svc.cluster.local:3000" | quote }}
+      internal_url: {{ .Values.istio.kiali.grafana.url | default "http://grafana.banking.svc.cluster.local:3000" | quote }}
+      {{- end }}
+    tracing:
+      enabled: {{ .Values.istio.kiali.tracing.enabled | default false }}
+      {{- if .Values.istio.kiali.tracing.enabled }}
+      use_grpc: true
+      internal_url: {{ .Values.istio.kiali.tracing.url | default "http://jaeger-query.istio-system.svc.cluster.local:16685" | quote }}
+      {{- end }}
+    istio:
+      config_map_name: istio
+      istio_sidecar_annotation: sidecar.istio.io/inject
+      root_namespace: istio-system
+
+  # ── Deployment settings ──────────────────────────────────────────────────────
+  deployment:
+    accessible_namespaces:
+      - "{{ .Values.global.namespace }}"
+      - "istio-system"
+    # Do not create an Ingress here — we manage it below so it uses the
+    # same ingressClassName and annotations as the rest of the chart.
+    ingress:
+      enabled: false
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+
+  # ── Kiali server config ──────────────────────────────────────────────────────
+  server:
+    web_root: /kiali
+    web_fqdn: {{ .Values.istio.kiali.host | default "kiali.eaglesoncloude.com" | quote }}
+    web_schema: "https"
+{{- end }}
+
+# ── Ingress for Kiali (both minikube addon and Operator deployments) ──────────
+# Kiali's Service is always named 'kiali' in 'istio-system'.
+# We route via nginx ingress to avoid opening a NodePort.
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "techbleat-bank.fullname" . }}-kiali
+  namespace: istio-system
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Kiali uses WebSockets for the live traffic graph — these are required.
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+    {{- if and .Values.tls .Values.tls.enabled }}
+    cert-manager.io/cluster-issuer: {{ .Values.tls.issuerName | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if and .Values.tls .Values.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.istio.kiali.host | default "kiali.eaglesoncloude.com" | quote }}
+      secretName: {{ include "techbleat-bank.fullname" . }}-kiali-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.istio.kiali.host | default "kiali.eaglesoncloude.com" | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kiali
+                port:
+                  number: 20001
+{{- end }}
+
+{{- end }}
