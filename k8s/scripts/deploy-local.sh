@@ -561,6 +561,23 @@ fi
 
 kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite
 
+# ── 4d. Enable Kiali addon (Istio observability console) ─────────────────────
+# Kiali requires Istio + metrics-server. The minikube addon ships Kiali as a
+# Deployment in istio-system; the Helm chart adds the nginx Ingress so it is
+# reachable at https://kiali.eaglesoncloude.com.
+# Idempotent — minikube enable is a no-op when the addon is already enabled.
+if minikube addons list -p "${CLUSTER_NAME}" 2>/dev/null | grep -q "kiali.*enabled"; then
+  info "Kiali addon already enabled — skipping."
+else
+  info "Enabling Kiali addon..."
+  minikube addons enable metrics-server -p "${CLUSTER_NAME}" 2>/dev/null || \
+    warn "metrics-server addon failed — Kiali will start but resource graphs may be empty."
+  minikube addons enable kiali -p "${CLUSTER_NAME}" || \
+    warn "Kiali addon failed to enable — check: minikube addons list -p ${CLUSTER_NAME}"
+  success "Kiali addon enabled. UI: https://kiali.eaglesoncloude.com (after Helm deploy)"
+  info "  Port-forward alternative: kubectl -n istio-system port-forward svc/kiali 20001:20001"
+fi
+
 # Istio policies (PeerAuthentication, AuthorizationPolicies) are now managed by the
 # Helm chart (templates/istio/istio-policies.yaml, gated by istio.enabled=true in
 # values-local.yaml). The adoption block above ensures Helm owns any existing resources.
@@ -751,6 +768,9 @@ printf '    Keycloak  : %s/admin\n' "${KEYCLOAK_PUBLIC_URL}"
 printf '  (Routes must be configured in Cloudflare Zero Trust dashboard)\n\n'
 fi
 printf '  ── Observability ───────────────────────────────────────\n'
+printf '    Kiali      : https://kiali.eaglesoncloude.com\n'
+printf '                 OR: kubectl -n istio-system port-forward svc/kiali 20001:20001\n'
+printf '                     then http://localhost:20001/kiali\n'
 printf '    Datadog    : https://app.%s\n' "${DD_SITE_CLEAN:-datadoghq.eu}"
 printf '                 (requires DD_API_KEY in .env)\n'
 printf '    ArgoCD     : http://localhost:8088  (admin / see below)\n\n'
