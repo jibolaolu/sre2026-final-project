@@ -350,6 +350,47 @@ success "Istio policies adopted into Helm ownership."
 # Deleting the PVC here means Kafka always formats storage clean on each deploy.
 kubectl delete pvc "kafka-data-${RELEASE}-kafka-0" -n "${NAMESPACE}" --ignore-not-found 2>/dev/null || true
 
+# ── 3b. Install Istio BEFORE Helm ─────────────────────────────────────────────
+# Istio must be running before helm upgrade so that:
+#   1. The mutating webhook injects sidecars into the postgres-sync hook pod.
+#   2. istiod has time to issue the SPIFFE cert before the hook runs pg_isready.
+#   3. STRICT mTLS PeerAuthentication on postgres works from the very first hook.
+# Moving this BEFORE helm avoids the Phase 6.5b retry failure where the retry
+# runs with Istio active but the hook's activeDeadlineSeconds runs out waiting
+# for Envoy warm-up on a fresh cluster.
+if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
+  info "Istio (istiod) already installed — skipping."
+else
+  info "Installing Istio via Helm (base → istiod → ingressgateway)..."
+  helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
+  helm repo update istio 2>/dev/null || true
+  kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
+  helm upgrade --install istio-base istio/base \
+    -n istio-system --wait --timeout=120s
+  helm upgrade --install istiod istio/istiod \
+    -n istio-system --wait --timeout=300s
+  helm upgrade --install istio-ingressgateway istio/gateway \
+    -n istio-system --wait --timeout=120s \
+    --set service.type=NodePort
+  success "Istio installed (istiod + ingressgateway)."
+fi
+
+# Label the banking namespace for sidecar injection NOW so the postgres-sync
+# hook pod gets its sidecar from the very first helm install attempt.
+kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite
+
+# Wait for istiod to be fully ready (xDS config distribution + CA warm-up).
+# Without this, the first sidecar to start may not get its cert in time.
+info "Waiting for istiod to be fully ready (up to 2 min)..."
+kubectl rollout status deployment/istiod -n istio-system --timeout=120s 2>/dev/null \
+  || warn "istiod not fully ready — hook pod Envoy warm-up may be slow"
+
+# Clean up any leftover postgres-sync hook pod from a previous failed install
+# so Helm's before-hook-creation policy doesn't race with a terminating pod.
+kubectl delete job -n "${NAMESPACE}" \
+  -l "app.kubernetes.io/component=postgres-sync" \
+  --ignore-not-found 2>/dev/null || true
+
 # ── 4. Helm deploy ───────────────────────────────────────────────────────────
 info "Deploying with Helm (release: ${RELEASE}) — this takes 60-90s with no output, please wait..."
 HELM_SET_KEYS=(
@@ -375,6 +416,7 @@ for kv in "${HELM_SET_KEYS[@]}"; do SET_ARGS+=(--set "${kv}"); done
 helm upgrade --install "${RELEASE}" "${CHART_DIR}" \
   --namespace "${NAMESPACE}" \
   --create-namespace \
+  --timeout 15m \
   -f "${CHART_DIR}/values.yaml" \
   -f "${CHART_DIR}/values-local.yaml" \
   "${SET_ARGS[@]}"
@@ -540,26 +582,11 @@ else
   warn "Add DD_API_KEY=<your-key> (and optionally DD_SITE=datadoghq.eu) to .env and re-run."
 fi
 
-# ── 4c. Install Istio service mesh ────────────────────────────────────────────
-# mTLS between all services, fine-grained AuthorizationPolicies, and WAF-ready ingress.
-if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
-  info "Istio (istiod) already installed — skipping."
-else
-  info "Installing Istio via Helm (base → istiod → ingressgateway)..."
-  helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
-  helm repo update istio 2>/dev/null || true
-  kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
-  helm upgrade --install istio-base istio/base \
-    -n istio-system --wait --timeout=120s
-  helm upgrade --install istiod istio/istiod \
-    -n istio-system --wait --timeout=300s
-  helm upgrade --install istio-ingressgateway istio/gateway \
-    -n istio-system --wait --timeout=120s \
-    --set service.type=NodePort
-  success "Istio installed (istiod + ingressgateway)."
-fi
-
-kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite
+# ── 4c. Istio — already installed in step 3b above ───────────────────────────
+# Istio and namespace sidecar injection label are set before the Helm deploy
+# (step 3b) so hook pods get sidecars on the very first install attempt.
+# This block is intentionally a no-op; kept as a named phase for log clarity.
+info "Istio installed in step 3b — no duplicate install needed."
 
 # ── 4d. Enable Kiali addon (Istio observability console) ─────────────────────
 # Kiali requires Istio + metrics-server. The minikube addon ships Kiali as a
