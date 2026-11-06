@@ -42,8 +42,11 @@ spec:
           labels:
             {{- include "techbleat-bank.selectorLabels" . | nindent 12 }}
             app.kubernetes.io/component: redis-backup
+          annotations:
+            proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
         spec:
           restartPolicy: OnFailure
+          serviceAccountName: redis-backup
           volumes:
             - name: backup-storage
               persistentVolumeClaim:
@@ -99,6 +102,9 @@ spec:
                   ls -t redis_*.rdb | tail -n +8 | xargs -r rm --
                   echo "[redis-backup] Retention done. Current snapshots:"
                   ls -lh redis_*.rdb 2>/dev/null || true
+
+                  # Signal Istio sidecar to exit (Alpine redis image uses wget)
+                  wget -q -O /dev/null --post-data='' http://localhost:15020/quitquitquit 2>/dev/null || true
               volumeMounts:
                 - name: backup-storage
                   mountPath: /backup
@@ -134,8 +140,11 @@ spec:
           labels:
             {{- include "techbleat-bank.selectorLabels" . | nindent 12 }}
             app.kubernetes.io/component: kafka-backup
+          annotations:
+            proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
         spec:
           restartPolicy: OnFailure
+          serviceAccountName: kafka-backup
           volumes:
             - name: backup-storage
               persistentVolumeClaim:
@@ -164,6 +173,9 @@ spec:
                   cd /backup
                   ls -t kafka_offsets_*.txt | tail -n +8 | xargs -r rm --
                   echo "[kafka-backup] Retention done."
+
+                  # Signal Istio sidecar to exit
+                  curl -sf -X POST http://localhost:15020/quitquitquit 2>/dev/null || true
               volumeMounts:
                 - name: backup-storage
                   mountPath: /backup

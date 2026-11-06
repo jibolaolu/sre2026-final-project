@@ -39,6 +39,7 @@ spec:
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
     spec:
       restartPolicy: OnFailure
+      serviceAccountName: postgres-sync
       containers:
         - name: postgres-sync
           image: postgres:15

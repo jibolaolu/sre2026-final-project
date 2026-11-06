@@ -129,6 +129,8 @@ frontend:
 istio:
   enabled: true
   mtls: PERMISSIVE
+  jwtIssuer: "https://auth.eaglesoncloude.com/realms/banking"
+  jwksUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
 
 # ── Observability ─────────────────────────────────────────────────────────────
 observability:

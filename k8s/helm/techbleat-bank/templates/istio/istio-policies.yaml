@@ -1,24 +1,36 @@
 {{- if .Values.istio.enabled }}
-# ── Istio service-mesh policies ───────────────────────────────────────────────
+# ── Istio service-mesh security policies ──────────────────────────────────────
 #
-# These resources are only rendered when istio.enabled=true (see values.yaml).
-# They solve two distinct layers of Istio traffic control:
+# Five layered controls:
 #
-#   1. PeerAuthentication  — controls the mTLS mode at the transport level.
-#      PERMISSIVE allows both mTLS (pod-to-pod) and plain HTTP (nginx ingress
-#      has no sidecar and cannot present a cert).
+#  1. PeerAuthentication  — PERMISSIVE at namespace level (nginx ingress has no
+#     sidecar); STRICT on the data tier (postgres, redis, kafka) where every
+#     caller is a sidecar-enabled pod.
 #
-#   2. AuthorizationPolicy — controls which callers can reach which pods.
-#      The deny-all default blocks everything; explicit ALLOW rules open only
-#      what is needed.  The nginx ingress controller has no principal (no
-#      sidecar), so ingress rules must omit `from` and match on port only.
+#  2. SA-based source principals  — Replace coarse namespace checks with exact
+#     SPIFFE identities (cluster.local/ns/banking/sa/<name>), so a compromised
+#     pod cannot reach a data-tier service unless its ServiceAccount is listed.
 #
-# A fresh cluster will have all of this applied on the very first helm deploy,
-# so the 502 / "RBAC: access denied" errors never surface.
+#  3. RequestAuthentication  — Validate Keycloak JWTs at the Envoy proxy layer.
+#     Malformed or expired tokens are rejected with HTTP 401 before the
+#     application code is ever reached.  Requires istio.jwtIssuer to be set.
+#
+#  4. JWT-claim ABAC  — AuthorizationPolicy `when` conditions on
+#     request.auth.claims[realm_access][roles] enforce Keycloak realm roles per
+#     operation: banking-customer (read), banking-transact (write), and
+#     banking-ai-agent (AI chat).
+#
+#  5. Path+method-level policies  — Fine-grained operation restrictions on
+#     transaction-service (GET vs POST split) and finance-agent (/chat only).
+#     Health and actuator paths are excluded from JWT requirements.
+
+# ── 1. PeerAuthentication ─────────────────────────────────────────────────────
 
 ---
-# Allow plain HTTP from the nginx ingress controller (no sidecar → no principal)
-# while still requiring mTLS for pod-to-pod traffic.
+# Namespace-wide: PERMISSIVE keeps compatibility with the nginx ingress
+# controller (no sidecar → cannot present a peer certificate).
+# All pod-to-pod traffic within the mesh still negotiates mTLS automatically
+# in PERMISSIVE mode — the sidecar pairs upgrade plain TCP to mTLS.
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
 metadata:
@@ -31,8 +43,32 @@ spec:
     mode: {{ .Values.istio.mtls | default "PERMISSIVE" }}
 
 ---
+# Data-tier: STRICT mTLS for postgres, redis, and kafka.
+# Every known caller of these services runs with an Istio sidecar
+# (services, backup CronJobs, hook Jobs), so plain-text connections
+# are never legitimate.  Any pod without a sidecar is refused at the
+# Envoy layer even before AuthorizationPolicy is evaluated.
+{{- range list "postgres" "redis" "kafka" }}
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: strict-mtls-{{ . }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: {{ . }}
+  mtls:
+    mode: STRICT
+{{- end }}
+
+# ── Default deny ──────────────────────────────────────────────────────────────
+
+---
 # Deny everything that is not explicitly allowed.
-# (Equivalent to a NetworkPolicy default-deny but at the application layer.)
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -42,11 +78,40 @@ metadata:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
 spec: {}
 
+# ── 3. RequestAuthentication ──────────────────────────────────────────────────
+# Requires istio.jwtIssuer to be set.  When set, every Envoy sidecar on the
+# API services validates incoming JWTs against Keycloak's JWKS endpoint.
+# A request with a structurally invalid or expired token is rejected 401
+# at the proxy.  A request with *no* token passes through (the
+# requestPrincipal is simply empty), so unauthenticated health checks and
+# internal service calls still work.
+
+{{- if .Values.istio.jwtIssuer }}
+{{- range list "user-service" "transaction-service" "activity-service" "finance-agent" }}
 ---
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: keycloak-jwt-{{ . }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: {{ . }}
+  jwtRules:
+  - issuer: {{ $.Values.istio.jwtIssuer | quote }}
+    jwksUri: {{ $.Values.istio.jwksUri | quote }}
+    forwardOriginalToken: true
+{{- end }}
+{{- end }}
+
 # ── Ingress → public-facing services ─────────────────────────────────────────
 # nginx ingress sends plain HTTP with no service-account principal, so the
 # `from` block is omitted and the rule matches on port only.
 
+---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -65,6 +130,9 @@ spec:
         ports: ["80"]
 
 ---
+# Keycloak must be reachable from the browser (nginx has no sidecar → port-only
+# rule).  This single policy covers both nginx ingress and backend services
+# because any ALLOW match is sufficient.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -82,16 +150,21 @@ spec:
     - operation:
         ports: ["8080"]
 
----
-# ── Ingress → API services ────────────────────────────────────────────────────
-# nginx ingress has no Istio sidecar so it presents no mTLS principal and its
-# namespace cannot be verified.  Port-only rules (no `from` block) allow the
-# ingress to reach each service regardless of the source principal.
+# ── 4+5. ABAC: Ingress + JWT-claim rules per API service ─────────────────────
+# Three-tier rule structure per service:
+#   a) Health / actuator paths — no authentication required
+#   b) Internal SA principals — service-to-service calls bypass JWT checks
+#   c) External with JWT claims — enforces Keycloak realm roles per method/path
+#
+# When istio.jwtIssuer is not set, tier (c) falls back to a port-only rule
+# so the chart stays functional without JWT configured.
 
+---
+# user-service: banking-customer role for all user/account endpoints.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-ingress-to-user-service
+  name: allow-to-user-service
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
@@ -101,15 +174,47 @@ spec:
       app.kubernetes.io/component: user-service
   action: ALLOW
   rules:
+  # (a) Health probes — no auth
+  - to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/health", "/health/*", "/actuator", "/actuator/*"]
+        ports: ["8000"]
+  # (b) Internal service-to-service (mTLS SA principal, no JWT required)
+  - from:
+    - source:
+        principals:
+          - "cluster.local/ns/banking/sa/finance-agent"
+          - "cluster.local/ns/banking/sa/transaction-service"
+          - "cluster.local/ns/banking/sa/activity-service"
+    to:
+    - operation:
+        ports: ["8000"]
+  {{- if .Values.istio.jwtIssuer }}
+  # (c) External: authenticated users with banking-customer role
+  - from:
+    - source:
+        requestPrincipals: ["*"]
+    to:
+    - operation:
+        ports: ["8000"]
+    when:
+    - key: request.auth.claims[realm_access][roles]
+      values: ["banking-customer"]
+  {{- else }}
+  # Fallback: allow all when JWT is not configured
   - to:
     - operation:
         ports: ["8000"]
+  {{- end }}
 
 ---
+# transaction-service: GET requires banking-customer; POST/PUT/DELETE requires
+# banking-transact (the role that permits initiating transfers).
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-ingress-to-transaction-service
+  name: allow-to-transaction-service
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
@@ -119,15 +224,57 @@ spec:
       app.kubernetes.io/component: transaction-service
   action: ALLOW
   rules:
+  # (a) Health probes — no auth
+  - to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/health", "/health/*", "/actuator", "/actuator/*"]
+        ports: ["8080"]
+  # (b) Internal SA principals
+  - from:
+    - source:
+        principals:
+          - "cluster.local/ns/banking/sa/user-service"
+          - "cluster.local/ns/banking/sa/finance-agent"
+          - "cluster.local/ns/banking/sa/activity-service"
+    to:
+    - operation:
+        ports: ["8080"]
+  {{- if .Values.istio.jwtIssuer }}
+  # (c-read) GET: banking-customer role (read transaction history)
+  - from:
+    - source:
+        requestPrincipals: ["*"]
+    to:
+    - operation:
+        methods: ["GET"]
+        ports: ["8080"]
+    when:
+    - key: request.auth.claims[realm_access][roles]
+      values: ["banking-customer"]
+  # (c-write) POST/PUT/DELETE: banking-transact role (initiate transfers)
+  - from:
+    - source:
+        requestPrincipals: ["*"]
+    to:
+    - operation:
+        methods: ["POST", "PUT", "PATCH", "DELETE"]
+        ports: ["8080"]
+    when:
+    - key: request.auth.claims[realm_access][roles]
+      values: ["banking-transact"]
+  {{- else }}
   - to:
     - operation:
         ports: ["8080"]
+  {{- end }}
 
 ---
+# activity-service: banking-customer for reads; banking-transact for writes.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-ingress-to-activity-service
+  name: allow-to-activity-service
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
@@ -137,15 +284,59 @@ spec:
       app.kubernetes.io/component: activity-service
   action: ALLOW
   rules:
+  # (a) Health probes — no auth
+  - to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/health", "/health/*", "/actuator", "/actuator/*"]
+        ports: ["8001"]
+  # (b) Internal SA principals
+  - from:
+    - source:
+        principals:
+          - "cluster.local/ns/banking/sa/user-service"
+          - "cluster.local/ns/banking/sa/transaction-service"
+          - "cluster.local/ns/banking/sa/finance-agent"
+    to:
+    - operation:
+        ports: ["8001"]
+  {{- if .Values.istio.jwtIssuer }}
+  # (c-read) GET: banking-customer role
+  - from:
+    - source:
+        requestPrincipals: ["*"]
+    to:
+    - operation:
+        methods: ["GET"]
+        ports: ["8001"]
+    when:
+    - key: request.auth.claims[realm_access][roles]
+      values: ["banking-customer"]
+  # (c-write) POST: banking-transact role (transaction events written to activity feed)
+  - from:
+    - source:
+        requestPrincipals: ["*"]
+    to:
+    - operation:
+        methods: ["POST", "PUT", "DELETE"]
+        ports: ["8001"]
+    when:
+    - key: request.auth.claims[realm_access][roles]
+      values: ["banking-transact"]
+  {{- else }}
   - to:
     - operation:
         ports: ["8001"]
+  {{- end }}
 
 ---
+# finance-agent: banking-ai-agent role required for /chat.
+# Health is unrestricted; every other path is blocked unless the user has
+# the banking-ai-agent Keycloak role.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: allow-ingress-to-finance-agent
+  name: allow-to-finance-agent
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
@@ -155,53 +346,39 @@ spec:
       app.kubernetes.io/component: finance-agent
   action: ALLOW
   rules:
+  # (a) Health probes — no auth
+  - to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/health", "/health/*", "/metrics"]
+        ports: ["9001"]
+  {{- if .Values.istio.jwtIssuer }}
+  # (c) POST /chat: banking-ai-agent role only
+  - from:
+    - source:
+        requestPrincipals: ["*"]
+    to:
+    - operation:
+        methods: ["POST"]
+        paths: ["/chat"]
+        ports: ["9001"]
+    when:
+    - key: request.auth.claims[realm_access][roles]
+      values: ["banking-ai-agent"]
+  {{- else }}
   - to:
     - operation:
         ports: ["9001"]
+  {{- end }}
+
+# ── 2. SA-based intra-namespace data-plane policies ───────────────────────────
+# These replace the coarse `source.namespaces` checks with exact SPIFFE
+# service-account identities.  A pod must present a peer certificate whose
+# principal matches one of the listed ServiceAccounts; any other pod in the
+# namespace is denied even if it can reach the port at the network layer.
 
 ---
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: allow-services-to-keycloak
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "techbleat-bank.labels" . | nindent 4 }}
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/component: keycloak
-  action: ALLOW
-  rules:
-  - from:
-    - source:
-        namespaces: ["{{ .Values.global.namespace }}", "ingress-nginx"]
-
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: allow-telemetry-to-otel-collector
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    {{- include "techbleat-bank.labels" . | nindent 4 }}
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/component: otel-collector
-  action: ALLOW
-  rules:
-  - from:
-    - source:
-        namespaces: ["{{ .Values.global.namespace }}"]
-
----
-# ── Intra-namespace data-plane services ───────────────────────────────────────
-# transaction-service, user-service, and activity-service all connect to
-# postgres, redis, and kafka which have no ingress-facing ALLOW rules.
-# Without this, the deny-all policy blocks these pod-to-pod connections and
-# Envoy closes the connection mid-handshake — pgjdbc sees this as an SSL EOF.
-
+# Postgres: only the listed service SAs may connect.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -217,9 +394,16 @@ spec:
   rules:
   - from:
     - source:
-        namespaces: ["{{ .Values.global.namespace }}"]
+        principals:
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/user-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/transaction-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/activity-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/keycloak"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/postgres-backup"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/postgres-sync"
 
 ---
+# Redis: only transaction-service and finance-agent use Redis.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -235,9 +419,13 @@ spec:
   rules:
   - from:
     - source:
-        namespaces: ["{{ .Values.global.namespace }}"]
+        principals:
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/transaction-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/finance-agent"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/redis-backup"
 
 ---
+# Kafka: event producers and consumers.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -253,6 +441,37 @@ spec:
   rules:
   - from:
     - source:
-        namespaces: ["{{ .Values.global.namespace }}"]
+        principals:
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/user-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/transaction-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/activity-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/kafka-backup"
+
+---
+# OTel collector: telemetry from all application pods.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-telemetry-to-otel-collector
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "techbleat-bank.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: otel-collector
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/user-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/transaction-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/activity-service"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/finance-agent"
+          - "cluster.local/ns/{{ .Values.global.namespace }}/sa/frontend"
+    to:
+    - operation:
+        ports: ["4317", "4318"]
 
 {{- end }}

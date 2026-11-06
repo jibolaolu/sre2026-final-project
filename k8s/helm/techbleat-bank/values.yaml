@@ -72,6 +72,11 @@ observability:
 istio:
   enabled: false
   mtls: PERMISSIVE
+  # JWT issuer = public Keycloak URL + /realms/banking (must match the `iss` claim in tokens)
+  # Leave empty to disable RequestAuthentication and JWT-claim ABAC rules.
+  jwtIssuer: ""
+  # JWKS URI Istio uses to fetch Keycloak's public signing keys (internal service URL is fine)
+  jwksUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:

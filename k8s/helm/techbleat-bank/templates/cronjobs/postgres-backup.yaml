@@ -38,8 +38,11 @@ spec:
           labels:
             {{- include "techbleat-bank.selectorLabels" . | nindent 12 }}
             app.kubernetes.io/component: postgres-backup
+          annotations:
+            proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
         spec:
           restartPolicy: OnFailure
+          serviceAccountName: postgres-backup
           volumes:
             - name: backup-storage
               persistentVolumeClaim:
