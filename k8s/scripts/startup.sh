@@ -268,6 +268,7 @@ kubectl create secret generic banking-app-secrets \
   --from-literal=postgres-password="${POSTGRES_PASSWORD}" \
   --from-literal=keycloak-admin-password="${KEYCLOAK_ADMIN_PASSWORD}" \
   --from-literal=keycloak-admin-client-secret="${KC_ADMIN_CLIENT_SECRET}" \
+  --from-literal=keycloak-demo-password="${DEMO_USER_PASSWORD:-Demo@2024}" \
   --from-literal=openai-api-key="${OPENAI_API_KEY}" \
   --from-literal=anthropic-api-key="${ANTHROPIC_API_KEY}" \
   --from-literal=datadog-api-key="${DD_API_KEY}" \
