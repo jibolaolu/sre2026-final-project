@@ -75,8 +75,10 @@ istio:
   # JWT issuer = public Keycloak URL + /realms/banking (must match the `iss` claim in tokens)
   # Leave empty to disable RequestAuthentication and JWT-claim ABAC rules.
   jwtIssuer: ""
-  # JWKS URI Istio uses to fetch Keycloak's public signing keys (internal service URL is fine)
-  jwksUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
+  # JWKS URI Istio uses to fetch Keycloak's public signing keys.
+  # Must be a FQDN: istiod runs in istio-system, so the short name "keycloak"
+  # does not resolve there — only keycloak.<namespace>.svc.cluster.local does.
+  jwksUri: "http://keycloak.banking.svc.cluster.local:8080/realms/banking/protocol/openid-connect/certs"
 
   # ── Kiali — Istio observability console ──────────────────────────────────────
   kiali:
@@ -211,7 +213,7 @@ transactionService:
     redisPort: "6379"
     serverPort: "8080"
     frontendOrigin: "http://frontend"
-    keycloakJwkSetUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
+    keycloakJwkSetUri: "http://keycloak.banking.svc.cluster.local:8080/realms/banking/protocol/openid-connect/certs"
 
 # ── activity-service ──────────────────────────────────────────────────────────
 activityService:

@@ -94,7 +94,7 @@ transactionService:
     tag: "latest"
   env:
     springDatasourceUrl: "jdbc:postgresql://postgres:5432/bankingdb?sslmode=disable"
-    keycloakJwkSetUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
+    keycloakJwkSetUri: "http://keycloak.banking.svc.cluster.local:8080/realms/banking/protocol/openid-connect/certs"
     frontendOrigin: "https://banking-app.eaglesoncloude.com"
 
 activityService:
@@ -133,7 +133,8 @@ istio:
   enabled: true
   mtls: PERMISSIVE
   jwtIssuer: "https://auth.eaglesoncloude.com/realms/banking"
-  jwksUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
+  # FQDN required: istiod lives in istio-system, not banking, so short name "keycloak" won't resolve
+  jwksUri: "http://keycloak.banking.svc.cluster.local:8080/realms/banking/protocol/openid-connect/certs"
   kiali:
     enabled: true
     minikubeAddon: true        # Kiali installed via: minikube addons enable kiali
