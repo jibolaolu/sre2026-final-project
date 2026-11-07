@@ -1128,6 +1128,15 @@ if timeout 5 kubectl get svc "techbleat-bank-finance-agent" -n "${NAMESPACE}" \
   || true  # non-fatal
 fi
 
+# 6. Kiali (Istio observability console) — runs in istio-system, not banking ns
+if timeout 5 kubectl get svc kiali -n istio-system >/dev/null 2>&1; then
+  pf_ensure "kiali.*20001" \
+    "svc/kiali" "20001:20001" \
+    "istio-system" "/tmp/pf-kiali.log" \
+    "kiali (20001→20001)" "20001" \
+  || true  # non-fatal
+fi
+
 [ "${PF_ANY_FAILED}" = "0" ] \
   && phase_done "port-forward" \
   || phase_warned "port-forward"
@@ -1221,6 +1230,7 @@ printf "\n  ── URLs ──────────────────�
 printf "  Local   :  http://techbleat-bank.local  (needs netsh below)\n"
 printf "  Keycloak:  http://keycloak.techbleat-bank.local/admin\n"
 printf "  ArgoCD  :  https://argocd-banking.eaglesoncloude.com  (local: http://localhost:8088)\n"
+printf "  Kiali   :  http://localhost:20001  (Istio mesh console — port-forwarded)\n"
 printf "  Demo    :  bankingdemo / Demo@2024\n"
 
 printf "\n  ── Windows netsh portproxy (run once as Admin after reboot) ──\n"
