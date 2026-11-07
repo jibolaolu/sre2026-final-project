@@ -60,6 +60,9 @@ tls:
 keycloak:
   replicaCount: 1
   productionMode: true   # true = start + PostgreSQL (persistent); false = start-dev + H2 (ephemeral)
+  # Keep false locally: Cloudflare terminates TLS at the edge, so plain HTTP is fine
+  # inside the cluster.  true would redirect Envoy's JWKS fetch → "Jwt verification fails".
+  hostnameStrictHttps: false
   resources:
     requests:
       cpu: 300m

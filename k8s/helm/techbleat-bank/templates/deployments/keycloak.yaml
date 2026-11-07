@@ -64,7 +64,7 @@ spec:
             - name: KC_HOSTNAME_STRICT
               value: "true"
             - name: KC_HOSTNAME_STRICT_HTTPS
-              value: "true"
+              value: {{ .Values.keycloak.hostnameStrictHttps | default false | toString | quote }}
             # KC_HOSTNAME_ADMIN_URL: full URL for admin console — avoids Keycloak
             # appending the ingress port (e.g. :80) to the admin redirect URL.
             # Must NOT be set together with KC_HOSTNAME_ADMIN (Keycloak rejects both).
