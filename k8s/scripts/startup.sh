@@ -66,6 +66,10 @@ KC_ADMIN_CLIENT_SECRET="$(_cs "${KC_ADMIN_CLIENT_SECRET}" "localdevsecret2026")"
 OPENAI_API_KEY="$(_c "${OPENAI_API_KEY:-}")"
 ANTHROPIC_API_KEY="$(_c "${ANTHROPIC_API_KEY:-}")"
 DD_API_KEY="$(_c "${DD_API_KEY:-}")"
+DEMO_USER_PASSWORD="$(_cs "${DEMO_USER_PASSWORD:-}" "Demo@2024")"
+TRANSACTION_SERVICE_KC_SECRET="$(_cs "${TRANSACTION_SERVICE_KC_SECRET:-}" "${KC_ADMIN_CLIENT_SECRET}")"
+ACTIVITY_SERVICE_KC_SECRET="$(_cs "${ACTIVITY_SERVICE_KC_SECRET:-}" "${KC_ADMIN_CLIENT_SECRET}")"
+FINANCE_AGENT_KC_SECRET="$(_cs "${FINANCE_AGENT_KC_SECRET:-}" "${KC_ADMIN_CLIENT_SECRET}")"
 CLOUDFLARE_TUNNEL_TOKEN="$(_c "${CLOUDFLARE_TUNNEL_TOKEN:-}")"
 KEYCLOAK_PUBLIC_URL="$(_c "${KEYCLOAK_PUBLIC_URL:-http://keycloak.techbleat-bank.local}")"
 GITHUB_USERNAME="$(_c "${GITHUB_USERNAME:-}")"
@@ -263,17 +267,55 @@ kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply
 # mTLS connections to postgres/redis/kafka to be rejected at the proxy layer.
 kubectl label namespace "${NAMESPACE}" istio-injection=enabled --overwrite 2>/dev/null || true
 
-# Secrets are always synced from .env (dry-run apply is idempotent)
+# Secrets are always synced from .env (dry-run apply is idempotent).
+# Keys must match app-secrets.yaml exactly — Helm's lookup guard prevents it
+# from ever updating an existing secret, so this command is the single source
+# of truth for the full key set.
 kubectl create secret generic banking-app-secrets \
   --from-literal=postgres-password="${POSTGRES_PASSWORD}" \
   --from-literal=keycloak-admin-password="${KEYCLOAK_ADMIN_PASSWORD}" \
   --from-literal=keycloak-admin-client-secret="${KC_ADMIN_CLIENT_SECRET}" \
-  --from-literal=keycloak-demo-password="${DEMO_USER_PASSWORD:-Demo@2024}" \
+  --from-literal=keycloak-demo-password="${DEMO_USER_PASSWORD}" \
+  --from-literal=transaction-service-kc-secret="${TRANSACTION_SERVICE_KC_SECRET}" \
+  --from-literal=activity-service-kc-secret="${ACTIVITY_SERVICE_KC_SECRET}" \
+  --from-literal=finance-agent-kc-secret="${FINANCE_AGENT_KC_SECRET}" \
   --from-literal=openai-api-key="${OPENAI_API_KEY}" \
   --from-literal=anthropic-api-key="${ANTHROPIC_API_KEY}" \
   --from-literal=datadog-api-key="${DD_API_KEY}" \
   -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
 success "banking-app-secrets synced from .env"
+
+# ── Secret reconciliation ─────────────────────────────────────────────────────
+# app-secrets.yaml has a lookup guard ({{- if not (lookup ...) }}) that blocks
+# Helm from ever updating banking-app-secrets after startup.sh creates it.
+# This loop patches any key the chart expects that is absent from the live
+# secret — covers clusters created by an older version of this script.
+# Idempotent: each key is a no-op when already present.
+_recon_patch=""
+_recon_keys=()
+_check_key() {
+  local key="$1" value="$2"
+  if ! kubectl get secret banking-app-secrets -n "${NAMESPACE}" \
+       -o go-template="{{index .data \"${key}\"}}" 2>/dev/null | grep -q .; then
+    local enc
+    enc="$(printf '%s' "${value}" | base64 | tr -d '\n')"
+    _recon_patch="${_recon_patch:+${_recon_patch},}\"${key}\":\"${enc}\""
+    _recon_keys+=("${key}")
+  fi
+}
+_check_key "keycloak-demo-password"         "${DEMO_USER_PASSWORD}"
+_check_key "transaction-service-kc-secret"  "${TRANSACTION_SERVICE_KC_SECRET}"
+_check_key "activity-service-kc-secret"     "${ACTIVITY_SERVICE_KC_SECRET}"
+_check_key "finance-agent-kc-secret"        "${FINANCE_AGENT_KC_SECRET}"
+if [ "${#_recon_keys[@]}" -gt 0 ]; then
+  warn "Patching ${#_recon_keys[@]} missing secret key(s): ${_recon_keys[*]}"
+  kubectl patch secret banking-app-secrets -n "${NAMESPACE}" \
+    --type=merge -p "{\"data\":{${_recon_patch}}}"
+  success "Secret reconciliation complete."
+else
+  info "Secret reconciliation: all required keys present."
+fi
+unset -f _check_key; unset _recon_patch _recon_keys
 
 if [ -n "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
   kubectl create secret generic cloudflare-tunnel-token \
