@@ -169,6 +169,7 @@ userService:
     frontendOrigin: "http://frontend"
     keycloakRealm: banking
     keycloakAdminClientId: banking-provisioner
+    keycloakJwksUri: "http://keycloak:8080/realms/banking/protocol/openid-connect/certs"
 
 # ── transaction-service ───────────────────────────────────────────────────────
 transactionService:
