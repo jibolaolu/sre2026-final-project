@@ -75,6 +75,12 @@
                 <artifactId>spring-boot-autoconfigure</artifactId>
                 <version>3.5.15</version>
             </dependency>
+            <!-- org.json 20260719: fixes CVE-2026-59171 (unbounded numeric string in JSONTokener). Transitive via springdoc-openapi. -->
+            <dependency>
+                <groupId>org.json</groupId>
+                <artifactId>json</artifactId>
+                <version>20260719</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
