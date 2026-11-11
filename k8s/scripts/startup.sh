@@ -966,6 +966,30 @@ DDAGENT
   phase_done "datadog"
 fi
 
+# ── Prometheus — required by Kiali for traffic graph ─────────────────────────
+# The KialiCR points to http://prometheus-server.istio-system.svc.cluster.local
+# so the release name MUST be "prometheus-server" in istio-system.
+# Deployed here (after the app is running) so the banking namespace already exists.
+if kubectl get service prometheus-server -n istio-system >/dev/null 2>&1; then
+  skip "Prometheus (already installed in istio-system)"
+else
+  info "Installing Prometheus (required by Kiali for Istio traffic graphs)..."
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+  helm repo update prometheus-community 2>/dev/null || true
+  helm upgrade --install prometheus-server prometheus-community/prometheus \
+    --namespace istio-system \
+    --set server.persistentVolume.enabled=false \
+    --set alertmanager.enabled=false \
+    --set "prometheus-pushgateway.enabled=false" \
+    --set nodeExporter.enabled=false \
+    --set server.resources.requests.cpu="50m" \
+    --set server.resources.requests.memory="128Mi" \
+    --set server.resources.limits.cpu="200m" \
+    --set server.resources.limits.memory="256Mi" \
+    --wait --timeout=5m
+  success "Prometheus installed in istio-system — Kiali traffic graphs will now load."
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 11 — CoreDNS patch (AI API hosts)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1198,6 +1222,14 @@ if [ -f "${_ARGOCD_APP}" ]; then
   kubectl apply -f "${_ARGOCD_APP}" >/dev/null 2>&1 \
     && info "ArgoCD Application manifest applied (auto-sync + ignoreDifferences active)." \
     || warn "ArgoCD Application manifest apply failed — run: kubectl apply -f k8s/argocd/application.yaml"
+fi
+# Always apply the ArgoCD ingress — backend-protocol: HTTPS breaks the redirect
+# loop caused by Cloudflare Flexible SSL → nginx ssl-redirect → ArgoCD HTTPS.
+_ARGOCD_INGRESS="${REPO_ROOT}/k8s/argocd/argocd-ingress.yaml"
+if [ -f "${_ARGOCD_INGRESS}" ]; then
+  kubectl apply -f "${_ARGOCD_INGRESS}" >/dev/null 2>&1 \
+    && info "ArgoCD ingress applied (argocd-banking.eaglesoncloude.com → port 443)." \
+    || warn "ArgoCD ingress apply failed — run: kubectl apply -f k8s/argocd/argocd-ingress.yaml"
 fi
 
 if kubectl get svc argocd-server -n argocd >/dev/null 2>&1; then

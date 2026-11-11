@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server-ingress
+  namespace: argocd
+  annotations:
+    # backend-protocol: HTTPS tells nginx to connect to ArgoCD's TLS port (443)
+    # directly, bypassing ArgoCD's own HTTP→HTTPS redirect. Without this,
+    # Cloudflare Flexible SSL (HTTP to origin) + ArgoCD's HTTPS enforcement
+    # causes an ERR_TOO_MANY_REDIRECTS loop.
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: argocd-banking.eaglesoncloude.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 443

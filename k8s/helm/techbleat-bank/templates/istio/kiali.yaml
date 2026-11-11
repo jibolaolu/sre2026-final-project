@@ -53,8 +53,9 @@ spec:
   # ── External service integrations ───────────────────────────────────────────
   external_services:
     prometheus:
-      # Prometheus deployed by this chart lives in the banking namespace.
-      url: "http://prometheus-server.{{ .Values.global.namespace }}.svc.cluster.local"
+      # Prometheus is installed in istio-system (same namespace as Kiali) so
+      # no cross-namespace NetworkPolicy is needed for Kiali to reach it.
+      url: "http://prometheus-server.istio-system.svc.cluster.local"
     grafana:
       enabled: {{ .Values.istio.kiali.grafana.enabled | default false }}
       {{- if .Values.istio.kiali.grafana.enabled }}
