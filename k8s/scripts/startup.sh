@@ -241,17 +241,28 @@ if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
     || warn "istiod not fully ready yet — hook pods may experience sidecar warm-up delay."
 fi
 
-# ── Kiali addon — Istio observability console ─────────────────────────────────
-# Kiali needs metrics-server for workload resource usage graphs.
-# minikube addons enable is idempotent — safe to call on every startup.
+# ── Kiali Operator — Istio observability console ──────────────────────────────
+# The minikube 'kiali' addon does not exist in current minikube versions.
+# Instead we install the Kiali Operator via Helm; it watches for a KialiCR
+# (deployed by the main Helm chart when istio.kiali.minikubeAddon=false) and
+# creates all Kiali resources in istio-system.  The operator install is
+# idempotent — 'helm upgrade --install' is safe to call on every startup.
 if kubectl get deployment istiod -n istio-system >/dev/null 2>&1; then
-  if ! minikube addons list -p "${CLUSTER_NAME}" 2>/dev/null | grep -q "kiali.*enabled"; then
-    info "Enabling Kiali and metrics-server minikube addons (Istio observability console)..."
-    minikube addons enable metrics-server -p "${CLUSTER_NAME}" 2>/dev/null || true
-    minikube addons enable kiali          -p "${CLUSTER_NAME}" 2>/dev/null || true
-    success "Kiali addon enabled — accessible at https://kiali.eaglesoncloude.com (once Helm deploys the ingress)."
+  if kubectl get deployment kiali-operator -n kiali-operator >/dev/null 2>&1; then
+    skip "Kiali Operator (already installed)"
   else
-    skip "Kiali addon (already enabled)"
+    info "Installing Kiali Operator (Istio observability console)..."
+    KIALI_OPERATOR_VERSION="1.89.0"
+    helm repo add kiali https://kiali.org/helm-charts 2>/dev/null || true
+    helm repo update kiali 2>/dev/null || true
+    helm upgrade --install kiali-operator kiali/kiali-operator \
+      --namespace kiali-operator \
+      --create-namespace \
+      --version "${KIALI_OPERATOR_VERSION}" \
+      --set cr.create=false \
+      --set cr.namespace=istio-system \
+      --wait --timeout=5m
+    success "Kiali Operator installed — KialiCR will be deployed by helm upgrade in Phase 6."
   fi
 fi
 
