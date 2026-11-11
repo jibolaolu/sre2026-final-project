@@ -610,15 +610,16 @@ else
 fi
 
 # ── 4e. Prometheus (required by Kiali for traffic graphs) ────────────────────
-# Release name must be "prometheus-server" in istio-system to match the KialiCR
-# prometheus URL: http://prometheus-server.istio-system.svc.cluster.local
+# Release name must be "prometheus" so the chart names the service "prometheus-server"
+# (chart appends "-server"). KialiCR points to prometheus-server.istio-system.svc.cluster.local
 if kubectl get service prometheus-server -n istio-system >/dev/null 2>&1; then
   info "Prometheus already installed in istio-system — skipping."
 else
   info "Installing Prometheus (required by Kiali for Istio traffic graphs)..."
   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
   helm repo update prometheus-community 2>/dev/null || true
-  helm upgrade --install prometheus-server prometheus-community/prometheus \
+  helm uninstall prometheus-server -n istio-system >/dev/null 2>&1 || true
+  helm upgrade --install prometheus prometheus-community/prometheus \
     --namespace istio-system \
     --set server.persistentVolume.enabled=false \
     --set alertmanager.enabled=false \
@@ -794,6 +795,16 @@ if kubectl get svc argocd-server -n argocd >/dev/null 2>&1; then
     >/tmp/pf-argocd.log 2>&1 &
   disown
   success "ArgoCD port-forward active on http://localhost:8088"
+fi
+
+# Exclude kiali.io resources from ArgoCD sync (KialiCR CRD requires Kiali Operator
+# installed by this script — ArgoCD can't apply it without the CRD).
+_ARGOCD_EXCL=$(kubectl get configmap argocd-cm -n argocd \
+  -o jsonpath='{.data.resource\.exclusions}' 2>/dev/null || echo "")
+if ! echo "${_ARGOCD_EXCL}" | grep -q "kiali.io"; then
+  kubectl -n argocd patch configmap argocd-cm --type merge \
+    -p '{"data":{"resource.exclusions":"- apiGroups:\n  - kiali.io\n  kinds:\n  - Kiali\n  clusters:\n  - \"*\"\n"}}' \
+    >/dev/null 2>&1 || true
 fi
 
 # Ensure ArgoCD insecure mode (HTTP only — Cloudflare terminates TLS at edge).

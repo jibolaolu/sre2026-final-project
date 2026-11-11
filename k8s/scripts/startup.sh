@@ -970,13 +970,18 @@ fi
 # The KialiCR points to http://prometheus-server.istio-system.svc.cluster.local
 # so the release name MUST be "prometheus-server" in istio-system.
 # Deployed here (after the app is running) so the banking namespace already exists.
+# Release name must be "prometheus" so the chart names the server service
+# "prometheus-server" (chart appends "-server"). The KialiCR points to
+# http://prometheus-server.istio-system.svc.cluster.local exactly.
 if kubectl get service prometheus-server -n istio-system >/dev/null 2>&1; then
   skip "Prometheus (already installed in istio-system)"
 else
   info "Installing Prometheus (required by Kiali for Istio traffic graphs)..."
   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
   helm repo update prometheus-community 2>/dev/null || true
-  helm upgrade --install prometheus-server prometheus-community/prometheus \
+  # Uninstall any stale release with the wrong name (prometheus-server-server service)
+  helm uninstall prometheus-server -n istio-system >/dev/null 2>&1 || true
+  helm upgrade --install prometheus prometheus-community/prometheus \
     --namespace istio-system \
     --set server.persistentVolume.enabled=false \
     --set alertmanager.enabled=false \
@@ -1223,6 +1228,21 @@ if [ -f "${_ARGOCD_APP}" ]; then
     && info "ArgoCD Application manifest applied (auto-sync + ignoreDifferences active)." \
     || warn "ArgoCD Application manifest apply failed — run: kubectl apply -f k8s/argocd/application.yaml"
 fi
+# Exclude kiali.io resources from ArgoCD sync — the KialiCR CRD only exists after
+# the Kiali Operator is installed by this script (not by ArgoCD), so ArgoCD cannot
+# apply the KialiCR and will fail every sync unless we tell it to ignore the type.
+_ARGOCD_EXCL=$(kubectl get configmap argocd-cm -n argocd \
+  -o jsonpath='{.data.resource\.exclusions}' 2>/dev/null || echo "")
+if echo "${_ARGOCD_EXCL}" | grep -q "kiali.io"; then
+  skip "ArgoCD kiali.io resource exclusion (already set)"
+else
+  info "Adding kiali.io resource exclusion to argocd-cm..."
+  kubectl -n argocd patch configmap argocd-cm --type merge \
+    -p '{"data":{"resource.exclusions":"- apiGroups:\n  - kiali.io\n  kinds:\n  - Kiali\n  clusters:\n  - \"*\"\n"}}' \
+    >/dev/null && success "kiali.io excluded from ArgoCD sync." \
+    || warn "Could not patch argocd-cm — ArgoCD may fail to sync due to KialiCR."
+fi
+
 # Ensure ArgoCD runs in insecure mode (HTTP only — Cloudflare terminates TLS).
 # The Helm install flag --set server.insecure=true is only applied on first install;
 # this step is idempotent and fixes existing installs where the flag was ignored.
