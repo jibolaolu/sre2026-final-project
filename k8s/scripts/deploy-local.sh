@@ -588,21 +588,48 @@ fi
 # This block is intentionally a no-op; kept as a named phase for log clarity.
 info "Istio installed in step 3b — no duplicate install needed."
 
-# ── 4d. Enable Kiali addon (Istio observability console) ─────────────────────
-# Kiali requires Istio + metrics-server. The minikube addon ships Kiali as a
-# Deployment in istio-system; the Helm chart adds the nginx Ingress so it is
-# reachable at https://kiali.eaglesoncloude.com.
-# Idempotent — minikube enable is a no-op when the addon is already enabled.
-if minikube addons list -p "${CLUSTER_NAME}" 2>/dev/null | grep -q "kiali.*enabled"; then
-  info "Kiali addon already enabled — skipping."
+# ── 4d. Kiali Operator (Istio observability console) ─────────────────────────
+# The minikube 'kiali' addon does not exist in current minikube versions.
+# Install the Kiali Operator via Helm; the KialiCR is deployed by the Helm chart
+# (values-local.yaml: kiali.minikubeAddon=false).
+if kubectl get deployment kiali-operator -n kiali-operator >/dev/null 2>&1; then
+  info "Kiali Operator already installed — skipping."
 else
-  info "Enabling Kiali addon..."
-  minikube addons enable metrics-server -p "${CLUSTER_NAME}" 2>/dev/null || \
-    warn "metrics-server addon failed — Kiali will start but resource graphs may be empty."
-  minikube addons enable kiali -p "${CLUSTER_NAME}" || \
-    warn "Kiali addon failed to enable — check: minikube addons list -p ${CLUSTER_NAME}"
-  success "Kiali addon enabled. UI: https://kiali.eaglesoncloude.com (after Helm deploy)"
-  info "  Port-forward alternative: kubectl -n istio-system port-forward svc/kiali 20001:20001"
+  info "Installing Kiali Operator (Istio observability console)..."
+  KIALI_OPERATOR_VERSION="1.89.0"
+  helm repo add kiali https://kiali.org/helm-charts 2>/dev/null || true
+  helm repo update kiali 2>/dev/null || true
+  helm upgrade --install kiali-operator kiali/kiali-operator \
+    --namespace kiali-operator \
+    --create-namespace \
+    --version "${KIALI_OPERATOR_VERSION}" \
+    --set cr.create=false \
+    --set cr.namespace=istio-system \
+    --wait --timeout=5m
+  success "Kiali Operator installed — KialiCR deployed by Helm chart in step 4."
+fi
+
+# ── 4e. Prometheus (required by Kiali for traffic graphs) ────────────────────
+# Release name must be "prometheus-server" in istio-system to match the KialiCR
+# prometheus URL: http://prometheus-server.istio-system.svc.cluster.local
+if kubectl get service prometheus-server -n istio-system >/dev/null 2>&1; then
+  info "Prometheus already installed in istio-system — skipping."
+else
+  info "Installing Prometheus (required by Kiali for Istio traffic graphs)..."
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+  helm repo update prometheus-community 2>/dev/null || true
+  helm upgrade --install prometheus-server prometheus-community/prometheus \
+    --namespace istio-system \
+    --set server.persistentVolume.enabled=false \
+    --set alertmanager.enabled=false \
+    --set "prometheus-pushgateway.enabled=false" \
+    --set nodeExporter.enabled=false \
+    --set server.resources.requests.cpu="50m" \
+    --set server.resources.requests.memory="128Mi" \
+    --set server.resources.limits.cpu="200m" \
+    --set server.resources.limits.memory="256Mi" \
+    --wait --timeout=5m
+  success "Prometheus installed in istio-system — Kiali traffic graphs will now load."
 fi
 
 # Istio policies (PeerAuthentication, AuthorizationPolicies) are now managed by the
@@ -767,6 +794,15 @@ if kubectl get svc argocd-server -n argocd >/dev/null 2>&1; then
     >/tmp/pf-argocd.log 2>&1 &
   disown
   success "ArgoCD port-forward active on http://localhost:8088"
+fi
+
+# Apply the ArgoCD ingress — backend-protocol: HTTPS breaks the redirect loop
+# caused by Cloudflare Flexible SSL → nginx ssl-redirect → ArgoCD HTTPS.
+_ARGOCD_INGRESS="${REPO_ROOT}/k8s/argocd/argocd-ingress.yaml"
+if [ -f "${_ARGOCD_INGRESS}" ]; then
+  kubectl apply -f "${_ARGOCD_INGRESS}" >/dev/null 2>&1 \
+    && success "ArgoCD ingress applied (argocd-banking.eaglesoncloude.com → port 443)." \
+    || warn "ArgoCD ingress apply failed — run: kubectl apply -f k8s/argocd/argocd-ingress.yaml"
 fi
 
 check_windows_hosts
