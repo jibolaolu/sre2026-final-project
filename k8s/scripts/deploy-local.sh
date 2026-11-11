@@ -796,12 +796,24 @@ if kubectl get svc argocd-server -n argocd >/dev/null 2>&1; then
   success "ArgoCD port-forward active on http://localhost:8088"
 fi
 
-# Apply the ArgoCD ingress — backend-protocol: HTTPS breaks the redirect loop
-# caused by Cloudflare Flexible SSL → nginx ssl-redirect → ArgoCD HTTPS.
+# Ensure ArgoCD insecure mode (HTTP only — Cloudflare terminates TLS at edge).
+_ARGOCD_INSECURE=$(kubectl get configmap argocd-cmd-params-cm -n argocd \
+  -o jsonpath='{.data.server\.insecure}' 2>/dev/null || echo "")
+if [ "${_ARGOCD_INSECURE}" != "true" ]; then
+  info "Enabling ArgoCD insecure mode..."
+  kubectl -n argocd get configmap argocd-cmd-params-cm >/dev/null 2>&1 \
+    && kubectl -n argocd patch configmap argocd-cmd-params-cm \
+         --type merge -p '{"data":{"server.insecure":"true"}}' >/dev/null \
+    || kubectl -n argocd create configmap argocd-cmd-params-cm \
+         --from-literal=server.insecure=true >/dev/null
+  kubectl rollout restart deployment/argocd-server -n argocd >/dev/null 2>&1 || true
+  kubectl rollout status deployment/argocd-server -n argocd --timeout=120s 2>/dev/null || true
+fi
+# Apply ArgoCD ingress — port 80 (HTTP) so nginx does not TLS-wrap an HTTP backend.
 _ARGOCD_INGRESS="${REPO_ROOT}/k8s/argocd/argocd-ingress.yaml"
 if [ -f "${_ARGOCD_INGRESS}" ]; then
   kubectl apply -f "${_ARGOCD_INGRESS}" >/dev/null 2>&1 \
-    && success "ArgoCD ingress applied (argocd-banking.eaglesoncloude.com → port 443)." \
+    && success "ArgoCD ingress applied (argocd-banking.eaglesoncloude.com → port 80)." \
     || warn "ArgoCD ingress apply failed — run: kubectl apply -f k8s/argocd/argocd-ingress.yaml"
 fi
 

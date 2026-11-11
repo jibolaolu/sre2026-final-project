@@ -76,6 +76,12 @@ spec:
       jqPathExpressions:
         - .spec.template.spec.containers[].image
         - .spec.template.spec.initContainers[].image
+    # KialiCR — kiali.io/v1alpha1 CRD only exists after the Kiali Operator is
+    # installed via startup.sh. ArgoCD cannot apply it on a fresh cluster where
+    # the operator hasn't run yet, so we exclude it from sync diff checks.
+    - group: kiali.io
+      kind: Kiali
+      namespace: istio-system
 
 ---
 # AppProject — restricts what ArgoCD can deploy (security best practice)
@@ -92,6 +98,8 @@ spec:
     - namespace: banking
       server: https://kubernetes.default.svc
     - namespace: argocd
+      server: https://kubernetes.default.svc
+    - namespace: istio-system
       server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''

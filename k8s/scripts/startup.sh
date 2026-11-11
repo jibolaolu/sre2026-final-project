@@ -1223,12 +1223,31 @@ if [ -f "${_ARGOCD_APP}" ]; then
     && info "ArgoCD Application manifest applied (auto-sync + ignoreDifferences active)." \
     || warn "ArgoCD Application manifest apply failed — run: kubectl apply -f k8s/argocd/application.yaml"
 fi
-# Always apply the ArgoCD ingress — backend-protocol: HTTPS breaks the redirect
-# loop caused by Cloudflare Flexible SSL → nginx ssl-redirect → ArgoCD HTTPS.
+# Ensure ArgoCD runs in insecure mode (HTTP only — Cloudflare terminates TLS).
+# The Helm install flag --set server.insecure=true is only applied on first install;
+# this step is idempotent and fixes existing installs where the flag was ignored.
+_ARGOCD_INSECURE=$(kubectl get configmap argocd-cmd-params-cm -n argocd \
+  -o jsonpath='{.data.server\.insecure}' 2>/dev/null || echo "")
+if [ "${_ARGOCD_INSECURE}" = "true" ]; then
+  skip "ArgoCD insecure mode (already set in argocd-cmd-params-cm)"
+else
+  info "Enabling ArgoCD insecure mode (HTTP-only; TLS terminated at Cloudflare edge)..."
+  kubectl -n argocd get configmap argocd-cmd-params-cm >/dev/null 2>&1 \
+    && kubectl -n argocd patch configmap argocd-cmd-params-cm \
+         --type merge -p '{"data":{"server.insecure":"true"}}' >/dev/null \
+    || kubectl -n argocd create configmap argocd-cmd-params-cm \
+         --from-literal=server.insecure=true >/dev/null
+  kubectl rollout restart deployment/argocd-server -n argocd >/dev/null 2>&1 || true
+  kubectl rollout status deployment/argocd-server -n argocd --timeout=120s 2>/dev/null \
+    && success "ArgoCD insecure mode enabled." \
+    || warn "ArgoCD insecure mode — rollout still in progress."
+fi
+# Always apply the ArgoCD ingress — targets port 80 (HTTP) so nginx does not
+# attempt TLS to ArgoCD's HTTP backend (which caused ERR_TOO_MANY_REDIRECTS).
 _ARGOCD_INGRESS="${REPO_ROOT}/k8s/argocd/argocd-ingress.yaml"
 if [ -f "${_ARGOCD_INGRESS}" ]; then
   kubectl apply -f "${_ARGOCD_INGRESS}" >/dev/null 2>&1 \
-    && info "ArgoCD ingress applied (argocd-banking.eaglesoncloude.com → port 443)." \
+    && info "ArgoCD ingress applied (argocd-banking.eaglesoncloude.com → port 80)." \
     || warn "ArgoCD ingress apply failed — run: kubectl apply -f k8s/argocd/argocd-ingress.yaml"
 fi
 
