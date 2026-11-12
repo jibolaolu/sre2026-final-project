@@ -386,6 +386,11 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
+  annotations:
+    # postgres-backup and postgres-sync are CronJob SAs with no running pod between
+    # scheduled runs.  Kiali KIA0105/KIA0106 fires when it finds no active workload
+    # for a principal — these are intentional backup accounts, not missing resources.
+    kiali.io/ignore-check: "KIA0105,KIA0106"
 spec:
   selector:
     matchLabels:
@@ -411,6 +416,9 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
+  annotations:
+    # redis-backup is a CronJob SA — no active pod between scheduled runs.
+    kiali.io/ignore-check: "KIA0105,KIA0106"
 spec:
   selector:
     matchLabels:
@@ -433,6 +441,9 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "techbleat-bank.labels" . | nindent 4 }}
+  annotations:
+    # kafka-backup is a CronJob SA — no active pod between scheduled runs.
+    kiali.io/ignore-check: "KIA0105,KIA0106"
 spec:
   selector:
     matchLabels:
